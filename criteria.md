@@ -63,7 +63,7 @@ The cost of an incorrect answer must be high. The eval should be built in a way 
 
 ## 4. Something about your chunks
 
-Chunks must be hierarchical. They should mention the topic that is discussed in the chunk. 
+At least 4 of 5 sampled chunks must be hierarchical. They should mention the topic that is discussed in the chunk. 
 
 <!-- YOU WRITE THIS ONE.
 
