@@ -24,11 +24,18 @@ CORPUS = os.getenv("AI201_CORPUS", "campus_life")
 
 
 # ─── Chunking (Milestone 3) ──────────────────────────────────────────────────
-# These are deliberately plain, generic numbers. Milestone 3 is where you
-# replace them with numbers that fit the documents you actually read.
+# campus_life is 88 short posts, each shaped as a title line, a blank line, and
+# one to four body paragraphs. The paragraphs are separate sub-topics: the
+# Atrium post is a review paragraph plus an hours-and-cost paragraph. So the
+# chunker packs paragraphs rather than counting characters, and prefixes every
+# chunk with its document title. See "Chunking Strategy" in the README.
+#
+# The starter shipped CHUNK_SIZE = 800 and CHUNK_OVERLAP = 120, which never cut
+# anything on this corpus: nothing in it reaches 800 characters.
 
-CHUNK_SIZE = 800        # characters per chunk
-CHUNK_OVERLAP = 120     # characters shared between neighbouring chunks
+CHUNK_SIZE = 450        # hard cap — a packed block longer than this is split on sentences
+CHUNK_OVERLAP = 0       # cuts land on paragraph breaks, so no sentence needs stitching
+CHUNK_MIN_CHARS = 180   # keep adding paragraphs until a chunk reaches this length
 
 
 # ─── Retrieval (Milestone 4) ─────────────────────────────────────────────────
