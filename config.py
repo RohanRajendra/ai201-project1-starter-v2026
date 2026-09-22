@@ -47,10 +47,15 @@ TOP_K = 5               # how many chunks to pull back per question
 #
 # LOWER IS BETTER: 0.3 is a close match, 0.9 is unrelated.
 #
-# 0.6 is a reasonable starting point, not a right answer. Milestone 4 has you
-# measure your own two groups of distances and put the cutoff in the gap.
-# Most corpora land somewhere between 0.45 and 0.75.
-THRESHOLD = 0.6
+# Measured in Milestone 4, after re-indexing with the new chunker. My five
+# in-corpus questions land at 0.202-0.455; the five in OUT_OF_SCOPE land at
+# 0.825-0.923. The gap is 0.455 to 0.825 and 0.65 is its midpoint, which leaves
+# about 0.19 of headroom in both directions. See the README for the full table.
+#
+# What this number cannot do: off-topic questions that share the corpus's
+# subject matter ("dining hall hours at Stanford") score 0.40-0.61, overlapping
+# the in-corpus range. The grounding instruction catches those, not the gate.
+THRESHOLD = 0.65
 
 
 # ─── Models ──────────────────────────────────────────────────────────────────
