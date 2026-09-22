@@ -104,49 +104,48 @@ chunk (397) is a paragraph plus its title, not a capped one.
 
      Milestone 3. -->
 
-======================================================================
-Chunk 1  |  source: admin_add_drop_deadline.txt#0  |  produced by: chunker.py::split_documents
-======================================================================
+**Chunk 1** — source: `admin_add_drop_deadline.txt#0` — produced by: `chunker.py::split_documents`
+
+```
 On the add/drop deadline
 
 You can add a course through the end of the second week. Dropping is a longer window — through the end of week six — but a drop after week two shows as a W on your transcript. Nothing anywhere on the registrar's site says this plainly, and students find out from each other.
+```
 
-======================================================================
-Chunk 2  |  source: course_cs_210_workload.txt#0  |  produced by: chunker.py::split_documents
-======================================================================
+**Chunk 2** — source: `course_cs_210_workload.txt#0` — produced by: `chunker.py::split_documents`
+
+```
 Workload for CS 210 Data Structures
 
 People keep asking so: 8 to 10 hours a week outside class. That's real time, not optimistic time.
 
 It's front-loaded — the first month is heavier than the rest, partly because you're learning the format.
+```
 
-======================================================================
-Chunk 3  |  source: course_phys_130_workload.txt#0  |  produced by: chunker.py::split_documents
-======================================================================
+**Chunk 3** — source: `course_phys_130_workload.txt#0` — produced by: `chunker.py::split_documents`
+
+```
 Workload for PHYS 130 Mechanics
 
 People keep asking so: 7 hours a week, plus 3 on lab weeks. That's real time, not optimistic time.
 
 It's front-loaded — the first month is heavier than the rest, partly because you're learning the format.
+```
 
-======================================================================
-Chunk 4  |  source: dining_the_ridgeway_cafe_followup.txt#1  |  produced by: chunker.py::split_documents
-======================================================================
+**Chunk 4** — source: `dining_the_ridgeway_cafe_followup.txt#1` — produced by: `chunker.py::split_documents`
+
+```
 Re: The Ridgeway Café
 
 Also worth saying: seating is tight; about 40 seats for a building of 900. Nobody tells you this at orientation.
+```
 
-======================================================================
-Chunk 5  |  source: housing_morrow_house_laundry.txt#0  |  produced by: chunker.py::split_documents
-======================================================================
+**Chunk 5** — source: `housing_morrow_house_laundry.txt#0` — produced by: `chunker.py::split_documents`
+
+```
 Laundry in Morrow House
 
 Machines take $1.50 wash, $1.25 dry, coin or card. There are eight washers and six dryers for the building, which is the wrong ratio and means the dryers back up on Sunday evenings.
-
-For each one, ask: could someone answer a question using only this,
-without reading what came before or after?
-
-```
 ```
 
 ## Sample Answer
@@ -155,13 +154,17 @@ without reading what came before or after?
      visible. Milestone 4. -->
 
 **Question:**
+What is good about dining at the Atrium?
 
 **Answer:**
 
 ```
+According to `dining_the_atrium.txt`, what is good about dining at The Atrium is that it features genuinely good sandwiches that are restocked twice a day, and there is no queue because it is all grab-and-go refrigerated cases.
+
+Sources retrieved: dining_pellew_dining_hall_followup.txt, dining_the_atrium.txt, dining_the_atrium_followup.txt
 ```
 
-**My relevance cutoff:**
+**My relevance cutoff:** 0.65
 
 <!-- The number you set in config.py, and how you got there.
 
@@ -174,7 +177,64 @@ without reading what came before or after?
 
 | Question | In corpus? | Best distance |
 |---|---|---|
-|  |  |  |
+| When does a grade appeal go to the department? | Yes | 0.2025 |
+| When does Halden Hall close? | Yes | 0.2326 |
+| What is good about dining at the Atrium? | Yes | 0.4126 |
+| What are the assessments for Linear Algebra? | Yes | 0.4264 |
+| How to get an urgent health appointment? | Yes | 0.4552 |
+| What is the capital of Mongolia? | No | 0.8246 |
+| What is the recommended dosage of ibuprofen for a headache? | No | 0.8477 |
+| How do I write a for loop in Rust? | No | 0.8768 |
+| Who won the 1994 World Cup? | No | 0.8859 |
+| How do I change the oil in a diesel engine? | No | 0.9231 |
+
+**The two groups.** In-corpus questions run 0.2025 to 0.4552. Off-topic ones run
+0.8246 to 0.9231. Nothing lands in between, so the gap is 0.455 to 0.825 —
+0.369 wide, which is larger than the entire spread of either group. I put the
+cutoff at its midpoint, 0.65 (0.640 rounded), leaving about 0.19 of headroom in
+each direction. Measured at 0.65, all five in-corpus questions are answered and
+all five off-topic ones are refused.
+
+I did not pick a number closer to either group. With a gap this wide, no value
+between 0.46 and 0.82 changes the result on these ten questions, so the choice
+is really about questions I haven't asked yet — and the midpoint is the value
+that degrades most slowly whether an unseen real question scores worse than
+0.455 or an unseen off-topic one scores better than 0.825.
+
+**What the cutoff cannot do.** The five `OUT_OF_SCOPE` questions are from a
+different world entirely, which makes them easy and makes the gap look better
+than it is. I tried six off-topic questions that share the corpus's subject
+matter instead, and they land at 0.404 to 0.608 — overlapping the in-corpus
+range completely:
+
+| Off-topic but topically adjacent | Best distance |
+|---|---|
+| What are the dining hall hours at Stanford? | 0.4043 |
+| Which residence hall has the best gym? | 0.4781 |
+| What time does the campus bookstore close? | 0.5039 |
+| What is the workload for CHEM 101? | 0.5350 |
+| How much does a meal plan cost at community college? | 0.5541 |
+| How do I appeal a parking ticket in Boston? | 0.6084 |
+
+"What are the dining hall hours at Stanford?" scores 0.4043 — closer than three
+of my five real questions. No cutoff can separate these: catching Stanford at
+0.40 would mean refusing four of my five real questions. The gate measures
+topical similarity, and these questions genuinely are on-topic; they are just
+about the wrong institution.
+
+This is what the second layer is for, and it works. Asked the Stanford question,
+the system retrieves Atrium and Halden Hall chunks, passes the gate, and the
+grounding instruction still produces: *"there is no mention of dining hall hours
+at 'Stanford'... Therefore, I do not have enough information to answer about
+Stanford."* Same for CHEM 101. I left `GROUNDING_INSTRUCTION` unchanged because
+I tested the case that would justify tightening it and it held.
+
+**Top-k is 5**, unchanged, and the Atrium question is why. Its answer-bearing
+chunk (`dining_the_atrium.txt#0`) comes back at rank 4, behind two chunks from
+the follow-up post. At top-k 3 that question would fail criterion 1, taking me
+from 5 of 5 to 4 of 5. Worth noting that top-k does not affect the gate at all:
+`gate.check` compares the single best distance, so top-k only changes how much
+context the model sees.
 
 ## How I Used AI
 
