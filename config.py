@@ -24,11 +24,18 @@ CORPUS = os.getenv("AI201_CORPUS", "campus_life")
 
 
 # ─── Chunking (Milestone 3) ──────────────────────────────────────────────────
-# These are deliberately plain, generic numbers. Milestone 3 is where you
-# replace them with numbers that fit the documents you actually read.
+# campus_life is 88 short posts, each shaped as a title line, a blank line, and
+# one to four body paragraphs. The paragraphs are separate sub-topics: the
+# Atrium post is a review paragraph plus an hours-and-cost paragraph. So the
+# chunker packs paragraphs rather than counting characters, and prefixes every
+# chunk with its document title. See "Chunking Strategy" in the README.
+#
+# The starter shipped CHUNK_SIZE = 800 and CHUNK_OVERLAP = 120, which never cut
+# anything on this corpus: nothing in it reaches 800 characters.
 
-CHUNK_SIZE = 800        # characters per chunk
-CHUNK_OVERLAP = 120     # characters shared between neighbouring chunks
+CHUNK_SIZE = 450        # hard cap — a packed block longer than this is split on sentences
+CHUNK_OVERLAP = 0       # cuts land on paragraph breaks, so no sentence needs stitching
+CHUNK_MIN_CHARS = 180   # keep adding paragraphs until a chunk reaches this length
 
 
 # ─── Retrieval (Milestone 4) ─────────────────────────────────────────────────
@@ -40,10 +47,15 @@ TOP_K = 5               # how many chunks to pull back per question
 #
 # LOWER IS BETTER: 0.3 is a close match, 0.9 is unrelated.
 #
-# 0.6 is a reasonable starting point, not a right answer. Milestone 4 has you
-# measure your own two groups of distances and put the cutoff in the gap.
-# Most corpora land somewhere between 0.45 and 0.75.
-THRESHOLD = 0.6
+# Measured in Milestone 4, after re-indexing with the new chunker. My five
+# in-corpus questions land at 0.202-0.455; the five in OUT_OF_SCOPE land at
+# 0.825-0.923. The gap is 0.455 to 0.825 and 0.65 is its midpoint, which leaves
+# about 0.19 of headroom in both directions. See the README for the full table.
+#
+# What this number cannot do: off-topic questions that share the corpus's
+# subject matter ("dining hall hours at Stanford") score 0.40-0.61, overlapping
+# the in-corpus range. The grounding instruction catches those, not the gate.
+THRESHOLD = 0.65
 
 
 # ─── Models ──────────────────────────────────────────────────────────────────

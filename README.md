@@ -2,6 +2,8 @@
 
 <!-- Replace this line with your name and which corpus you picked. -->
 
+Name: Rohan Rajendra. Corpus: Campus Life
+
 > **This file is your submission.** Fill it in as you go — most sections get
 > written during the milestone that produces them, not at the end.
 >
@@ -27,10 +29,25 @@
 
      Milestone 5. -->
 
+This is a question-answering system over `campus_life`, a corpus of 88 short
+posts written by students about one university — dining halls, residence halls,
+course workloads and assessments, and administrative processes like grade
+appeals and the add/drop deadline. You ask a question in plain English; it
+finds the handful of passages most likely to hold the answer, then has a
+language model write a short answer from those passages and name the file each
+fact came from.
+
+It is built for the questions the official site doesn't answer plainly: *When
+does Halden Hall close? What are the assessments for Linear Algebra? How do I
+get an urgent health appointment?* Ask it something the documents don't cover
+and it tells you it doesn't have enough information instead of guessing — a
+distance cutoff refuses clearly unrelated questions before they ever reach the
+model, and the model is instructed to answer only from the text it was given.
+
 ## Chunking Strategy
 
-**Chunk size:**
-**Overlap:**
+**Chunk size:** pack paragraphs until a chunk reaches 180 characters; hard cap 450
+**Overlap:** 0
 
 <!-- What about YOUR documents made you pick these numbers? Short posts and
      long sectioned guides don't want the same chunking, and "800 seemed
@@ -41,6 +58,55 @@
      more than pretending you got it right first time.
 
      Milestone 3. -->
+
+Result: 122 chunks from 88 documents, 235 characters on average, shortest 103,
+longest 397. The starter produced 88 chunks — one per document — at 800/120.
+
+**What I noticed reading the documents.** Every one of the 88 posts in
+`campus_life` has the same shape: a title line, a blank line, then one to four
+body paragraphs. They are short — 309 characters at the median, 549 at the
+longest — so the starter's 800-character window never cut anything at all. That
+is not a bug, but it is not right either, because the paragraphs inside a post
+are separate sub-topics. The Atrium post is a review paragraph and then an
+hours-and-cost paragraph. The health centre post is walk-in care and then
+counselling. Asked "what are the Atrium's hours," a single 400-character chunk
+makes me match the review text too.
+
+**Why the title gets prefixed.** Splitting on paragraphs alone breaks the
+second half. On its own, `Hours are 7:30am to 7:00pm weekdays, closed Sundays.
+Costs one meal swipe, or $10.00 cash.` never says which dining hall it means,
+so it can't match a question about Halden Hall. Since the first line of every
+document is its title, each chunk gets that title prepended. That is what makes
+splitting safe here, and it's what criterion 4 in `criteria.md` is asking for.
+
+**Why 180 and not one chunk per paragraph.** One paragraph per chunk gives 183
+chunks, but 26 of this corpus's paragraphs are under 80 characters — things like
+`Expect 4 hours a week outside class.` Titles average 28 characters and run to
+47, so prefixing one onto a 72-character paragraph makes the title roughly half
+the chunk, diluting the part that makes it distinct and pushing same-document
+chunks toward identical embeddings. Packing to 180 brings titles down to about
+12% of the average chunk.
+
+The cost of that floor is real and I'd rather record it than hide it:
+`health_center.txt`'s first paragraph is 173 characters, just under the line, so
+counselling got packed in with walk-in hours instead of splitting. One of the
+two topics I used to justify splitting didn't actually split. At a floor of 150
+it would have. I kept 180 because the dilution problem affects 26 chunks and
+this one affects one, but it is a genuine trade-off, not a free choice.
+
+**Why overlap is 0.** Overlap repairs a specific injury: a fixed-size window
+cutting a sentence in half so neither half retrieves. My cuts land on paragraph
+breaks, so no sentence is ever severed and there is nothing to stitch back
+together. The context-carrying that overlap usually does is done by the title
+prefix instead. Adding it would also duplicate text across chunks, and on a
+corpus this small two near-identical embeddings can take two of the five top-k
+slots for one answer.
+
+**About the 450 cap.** It never fired. The longest body paragraph in the corpus
+is 373 characters, so `_split_long` returned its input unchanged every time. I
+kept it as a guard so that adding a longer document later can't silently
+produce one enormous chunk, but on this corpus it is inactive, and the longest
+chunk (397) is a paragraph plus its title, not a capped one.
 
 ## Sample Chunks
 
@@ -53,29 +119,48 @@
 
      Milestone 3. -->
 
-**Chunk 1** — source: `` — produced by: ``
+**Chunk 1** — source: `admin_add_drop_deadline.txt#0` — produced by: `chunker.py::split_documents`
 
 ```
+On the add/drop deadline
+
+You can add a course through the end of the second week. Dropping is a longer window — through the end of week six — but a drop after week two shows as a W on your transcript. Nothing anywhere on the registrar's site says this plainly, and students find out from each other.
 ```
 
-**Chunk 2** — source: `` — produced by: ``
+**Chunk 2** — source: `course_cs_210_workload.txt#0` — produced by: `chunker.py::split_documents`
 
 ```
+Workload for CS 210 Data Structures
+
+People keep asking so: 8 to 10 hours a week outside class. That's real time, not optimistic time.
+
+It's front-loaded — the first month is heavier than the rest, partly because you're learning the format.
 ```
 
-**Chunk 3** — source: `` — produced by: ``
+**Chunk 3** — source: `course_phys_130_workload.txt#0` — produced by: `chunker.py::split_documents`
 
 ```
+Workload for PHYS 130 Mechanics
+
+People keep asking so: 7 hours a week, plus 3 on lab weeks. That's real time, not optimistic time.
+
+It's front-loaded — the first month is heavier than the rest, partly because you're learning the format.
 ```
 
-**Chunk 4** — source: `` — produced by: ``
+**Chunk 4** — source: `dining_the_ridgeway_cafe_followup.txt#1` — produced by: `chunker.py::split_documents`
 
 ```
+Re: The Ridgeway Café
+
+Also worth saying: seating is tight; about 40 seats for a building of 900. Nobody tells you this at orientation.
 ```
 
-**Chunk 5** — source: `` — produced by: ``
+**Chunk 5** — source: `housing_morrow_house_laundry.txt#0` — produced by: `chunker.py::split_documents`
 
 ```
+Laundry in Morrow House
+
+Machines take $1.50 wash, $1.25 dry, coin or card. There are eight washers and six dryers for the building, which is the wrong ratio and means the dryers back up on Sunday evenings.
 ```
 
 ## Sample Answer
@@ -84,13 +169,17 @@
      visible. Milestone 4. -->
 
 **Question:**
+What is good about dining at the Atrium?
 
 **Answer:**
 
 ```
+According to `dining_the_atrium.txt`, what is good about dining at The Atrium is that it features genuinely good sandwiches that are restocked twice a day, and there is no queue because it is all grab-and-go refrigerated cases.
+
+Sources retrieved: dining_pellew_dining_hall_followup.txt, dining_the_atrium.txt, dining_the_atrium_followup.txt
 ```
 
-**My relevance cutoff:**
+**My relevance cutoff:** 0.65
 
 <!-- The number you set in config.py, and how you got there.
 
@@ -103,7 +192,64 @@
 
 | Question | In corpus? | Best distance |
 |---|---|---|
-|  |  |  |
+| When does a grade appeal go to the department? | Yes | 0.2025 |
+| When does Halden Hall close? | Yes | 0.2326 |
+| What is good about dining at the Atrium? | Yes | 0.4126 |
+| What are the assessments for Linear Algebra? | Yes | 0.4264 |
+| How to get an urgent health appointment? | Yes | 0.4552 |
+| What is the capital of Mongolia? | No | 0.8246 |
+| What is the recommended dosage of ibuprofen for a headache? | No | 0.8477 |
+| How do I write a for loop in Rust? | No | 0.8768 |
+| Who won the 1994 World Cup? | No | 0.8859 |
+| How do I change the oil in a diesel engine? | No | 0.9231 |
+
+**The two groups.** In-corpus questions run 0.2025 to 0.4552. Off-topic ones run
+0.8246 to 0.9231. Nothing lands in between, so the gap is 0.455 to 0.825 —
+0.369 wide, which is larger than the entire spread of either group. I put the
+cutoff at its midpoint, 0.65 (0.640 rounded), leaving about 0.19 of headroom in
+each direction. Measured at 0.65, all five in-corpus questions are answered and
+all five off-topic ones are refused.
+
+I did not pick a number closer to either group. With a gap this wide, no value
+between 0.46 and 0.82 changes the result on these ten questions, so the choice
+is really about questions I haven't asked yet — and the midpoint is the value
+that degrades most slowly whether an unseen real question scores worse than
+0.455 or an unseen off-topic one scores better than 0.825.
+
+**What the cutoff cannot do.** The five `OUT_OF_SCOPE` questions are from a
+different world entirely, which makes them easy and makes the gap look better
+than it is. I tried six off-topic questions that share the corpus's subject
+matter instead, and they land at 0.404 to 0.608 — overlapping the in-corpus
+range completely:
+
+| Off-topic but topically adjacent | Best distance |
+|---|---|
+| What are the dining hall hours at Stanford? | 0.4043 |
+| Which residence hall has the best gym? | 0.4781 |
+| What time does the campus bookstore close? | 0.5039 |
+| What is the workload for CHEM 101? | 0.5350 |
+| How much does a meal plan cost at community college? | 0.5541 |
+| How do I appeal a parking ticket in Boston? | 0.6084 |
+
+"What are the dining hall hours at Stanford?" scores 0.4043 — closer than three
+of my five real questions. No cutoff can separate these: catching Stanford at
+0.40 would mean refusing four of my five real questions. The gate measures
+topical similarity, and these questions genuinely are on-topic; they are just
+about the wrong institution.
+
+This is what the second layer is for, and it works. Asked the Stanford question,
+the system retrieves Atrium and Halden Hall chunks, passes the gate, and the
+grounding instruction still produces: *"there is no mention of dining hall hours
+at 'Stanford'... Therefore, I do not have enough information to answer about
+Stanford."* Same for CHEM 101. I left `GROUNDING_INSTRUCTION` unchanged because
+I tested the case that would justify tightening it and it held.
+
+**Top-k is 5**, unchanged, and the Atrium question is why. Its answer-bearing
+chunk (`dining_the_atrium.txt#0`) comes back at rank 4, behind two chunks from
+the follow-up post. At top-k 3 that question would fail criterion 1, taking me
+from 5 of 5 to 4 of 5. Worth noting that top-k does not affect the gate at all:
+`gate.check` compares the single best distance, so top-k only changes how much
+context the model sees.
 
 ## How I Used AI
 
@@ -116,9 +262,26 @@
 
      Milestone 5. -->
 
-**1.**
+**1. Getting Claude to measure my corpus, then building the chunker.** I'd read through documents in the corpus and had a rough sense that
+they were short and structured, but I couldn't turn that into numbers. So
+before any code, I asked Claude to characterise all 88 documents. It reported
+back: every single one opens with a title line, a blank line, and then one to
+four body paragraphs; there are 183 body paragraphs with a median length of 112
+characters and a maximum of 373; 26 of them are under 80 characters; and titles
+average 28 characters.
 
-**2.**
+I had Claude simulate each option against the real corpus before I committed to
+one, so I was choosing between measured outcomes (183 vs 122 vs 92 chunks) rather
+than guesses. I also deliberated setting the overlap to 0, because
+that read as skipping a parameter. I asked it to build the alternative rather
+than defend its answer; the one-sentence-carryover version added 2,649 duplicated
+characters and pushed sandwich-restocking text into the Atrium's hours chunk. So
+I kept 0, for a reason I could state.
+
+**2. Simulating the different retrival distances for a bunch of test questions.** To zero in on the cutoff point. I set a bunch of sample questions, both on topic and off topic, and ran some simulations with different cutoffs to land at a midpoint value of 0.65, Claude was useful in creating the questions and running different simulations of the cutoff point. I kept
+0.65, because no cutoff separates "this campus's dining" from "some campus's
+dining," but updated the section to highlight the current limitations and why the
+grounding instruction layer should be able to catch it.
 
 <!-- ── Stretch features ─────────────────────────────────────────────────────
      Doing one? Say so here BEFORE you start. A feature this README never

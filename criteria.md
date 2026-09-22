@@ -26,15 +26,19 @@ contains the answer.
 <!-- e.g. "One of my questions is about a topic only two documents mention, so
      I expect that one to be hard." -->
 
+One of the questions asked is from a specific sentence in a follow up document. Since it is a follow up, the answer lives in two different documents, and it can be pulled from a document about the same topic but different txt file. 
+
 ---
 
 ## 2. Every answer names a source
 
 Every answer the system produces names at least one source document.
 
-**Why this target:**
+**Why this target:** 
 <!-- Why all five and not four? What about your setup makes that achievable —
      or what would have to go wrong for it not to be? -->
+
+Every question included has a clearly documented answer present in the corpus. The source should be cited for the correct results. 
 
 ---
 
@@ -42,7 +46,7 @@ Every answer the system produces names at least one source document.
 
 When I ask a question my documents clearly don't cover, the relevance gate
 stops it and the system returns "I don't have enough information about that" —
-in at least 4 of 5 tries.
+in at least 5 of 5 tries.
 
 <!-- The five questions are the ones in `OUT_OF_SCOPE` at the bottom of
      `questions.py`, and `run_eval.py` puts them through the gate and writes
@@ -53,9 +57,13 @@ in at least 4 of 5 tries.
 <!-- What did your distances look like when you set the cutoff in Milestone 4?
      Was there a clean gap, or did the two groups overlap? -->
 
+The cost of an incorrect answer must be high. The eval should be built in a way that penalizes wrong answers highly. 
+
 ---
 
 ## 4. Something about your chunks
+
+At least 4 of 5 sampled chunks must be hierarchical. They should mention the topic that is discussed in the chunk. 
 
 <!-- YOU WRITE THIS ONE.
 
@@ -73,11 +81,14 @@ in at least 4 of 5 tries.
 
 **Why this target:**
 
+This is richer context for shorter chunks. Every document in the corpus has a topic it is talking about in the title of the txt file, like the course exam details or the workload. This information will make the context richer and short chunks more meaningful. 
 
 
 ---
 
 ## 5. Your choice
+
+The response time should be under 50ms. 
 
 <!-- YOU WRITE THIS ONE TOO.
 
@@ -90,6 +101,8 @@ in at least 4 of 5 tries.
 
 
 **Why this target:**
+
+Retrieval should work fast since it is part of a larger application. 50ms for a small corpus means the user is not waiting on information for too long. Additionally slower responses would cause the user to look up the information themselves. 
 
 
 
