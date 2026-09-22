@@ -29,6 +29,21 @@ Name: Rohan Rajendra. Corpus: Campus Life
 
      Milestone 5. -->
 
+This is a question-answering system over `campus_life`, a corpus of 88 short
+posts written by students about one university — dining halls, residence halls,
+course workloads and assessments, and administrative processes like grade
+appeals and the add/drop deadline. You ask a question in plain English; it
+finds the handful of passages most likely to hold the answer, then has a
+language model write a short answer from those passages and name the file each
+fact came from.
+
+It is built for the questions the official site doesn't answer plainly: *When
+does Halden Hall close? What are the assessments for Linear Algebra? How do I
+get an urgent health appointment?* Ask it something the documents don't cover
+and it tells you it doesn't have enough information instead of guessing — a
+distance cutoff refuses clearly unrelated questions before they ever reach the
+model, and the model is instructed to answer only from the text it was given.
+
 ## Chunking Strategy
 
 **Chunk size:** pack paragraphs until a chunk reaches 180 characters; hard cap 450
@@ -247,9 +262,26 @@ context the model sees.
 
      Milestone 5. -->
 
-**1.**
+**1. Getting Claude to measure my corpus, then building the chunker.** I'd read through documents in the corpus and had a rough sense that
+they were short and structured, but I couldn't turn that into numbers. So
+before any code, I asked Claude to characterise all 88 documents. It reported
+back: every single one opens with a title line, a blank line, and then one to
+four body paragraphs; there are 183 body paragraphs with a median length of 112
+characters and a maximum of 373; 26 of them are under 80 characters; and titles
+average 28 characters.
 
-**2.**
+I had Claude simulate each option against the real corpus before I committed to
+one, so I was choosing between measured outcomes (183 vs 122 vs 92 chunks) rather
+than guesses. I also deliberated setting the overlap to 0, because
+that read as skipping a parameter. I asked it to build the alternative rather
+than defend its answer; the one-sentence-carryover version added 2,649 duplicated
+characters and pushed sandwich-restocking text into the Atrium's hours chunk. So
+I kept 0, for a reason I could state.
+
+**2. Simulating the different retrival distances for a bunch of test questions.** To zero in on the cutoff point. I set a bunch of sample questions, both on topic and off topic, and ran some simulations with different cutoffs to land at a midpoint value of 0.65, Claude was useful in creating the questions and running different simulations of the cutoff point. I kept
+0.65, because no cutoff separates "this campus's dining" from "some campus's
+dining," but updated the section to highlight the current limitations and why the
+grounding instruction layer should be able to catch it.
 
 <!-- ── Stretch features ─────────────────────────────────────────────────────
      Doing one? Say so here BEFORE you start. A feature this README never
