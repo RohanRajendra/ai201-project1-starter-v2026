@@ -443,11 +443,13 @@ separate:
 | How do I appeal a parking ticket in Boston? | 0.6084 | 0.6865 | +0.0781 |
 
 CHEM 101 is the one that matters. My corpus has no CHEM 101 document. Under
-MiniLM it sat at 0.5350, above four of my five real questions. Under mpnet it
-drops to 0.3704 — closer than three of my five real questions, and closer than
-the Atrium question I actually expect to answer. mpnet has learned the
-*shape* of "workload for a course code" well enough that it matches my workload
-documents strongly whether or not the specific course exists. A better embedding
+MiniLM it sat at 0.5350 — further away than every one of my five real questions,
+whose worst was 0.4552, so it fell outside the in-corpus range entirely. Under
+mpnet it drops to 0.3704, which lands it *inside* that range: closer than two of
+my five real questions (0.4055 and 0.4930) and sitting between the Atrium
+question at 0.3484 and Linear Algebra at 0.4055. mpnet has learned the *shape* of
+"workload for a course code" well enough that it matches my workload documents
+strongly whether or not the specific course exists. A better embedding
 model made the confusable case more confusable, because being better at topical
 similarity is exactly the wrong skill for telling *this* campus from any campus.
 The parking-ticket question moved the other way and now sits above 0.65, so
@@ -468,7 +470,7 @@ the `--source` filter.
 | 3 | 193.2 ms | 42.1 ms |
 
 Twice the vector width, three to four times faster. The vector width is not what
-is being measured: the Chroma lookup is about 3ms either way, and almost all of
+is being measured: the Chroma lookup is a few milliseconds either way, and almost all of
 this is the query embedding. MiniLM arrives as an ONNX build that runs
 single-threaded on the CPU, while `sentence-transformers` loads mpnet through
 PyTorch, which uses the machine's accelerated multi-threaded backend. The
@@ -486,8 +488,10 @@ inference runtime, not a smaller model.
 `ask_pipeline` unchanged. From turn 2 on, the previous question and the new
 follow-up go to the model first, with an instruction to rewrite the follow-up so
 it stands on its own; that rewritten string is what gets retrieved on and
-prompted with. `ask_pipeline`, `generate.py`, `store.py` and `serve.py` are
-untouched — the whole feature is `cmd_chat` plus one helper in `app.py`.
+prompted with. `ask_pipeline`, `generate.py` and `serve.py` are untouched, and
+`store.py` is untouched *by this feature* — the whole of it is `cmd_chat` plus
+one helper in `app.py`. (`store.py` does change elsewhere in this submission, for
+the metadata filter above.)
 
 **The two-turn exchange**, pasted as run:
 
