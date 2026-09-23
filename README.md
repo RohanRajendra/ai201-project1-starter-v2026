@@ -377,69 +377,6 @@ The filter is close to free. Timing the Chroma lookup alone over the same 122
 chunks, unfiltered runs at a 4.4ms median and `where source=...` at 5.0ms — a
 metadata `$eq` on a collection this small costs about half a millisecond.
 
-### Result 3 — conversational memory
-
-**What I built.** `python app.py chat`. Turn 1 goes to the existing
-`ask_pipeline` unchanged. From turn 2 on, the previous question and the new
-follow-up go to the model first, with an instruction to rewrite the follow-up so
-it stands on its own; that rewritten string is what gets retrieved on and
-prompted with. `ask_pipeline`, `generate.py`, `store.py` and `serve.py` are
-untouched — the whole feature is `cmd_chat` plus one helper in `app.py`.
-
-**The two-turn exchange**, pasted as run:
-
-```
-> What is good about dining at the Atrium?
-  (best distance 0.413, cutoff 0.65)
-
-According to `dining_the_atrium.txt`, what is good about dining at The Atrium is that it features genuinely good sandwiches that are restocked twice a day, and there is no queue because it is all grab-and-go refrigerated cases.
-
-Sources retrieved: dining_pellew_dining_hall_followup.txt, dining_the_atrium.txt, dining_the_atrium_followup.txt
-
-> When does it close?
-  (resolved to: When does the Atrium close?)
-  (best distance 0.387, cutoff 0.65)
-
-The Atrium is open from 8:00 am to 6:00 pm on weekdays (dining_the_atrium.txt).
-
-Sources retrieved: dining_halden_hall_followup.txt, dining_the_atrium.txt, dining_the_atrium_followup.txt
-```
-
-Turn 2 contains no subject at all. *"When does it close?"* cannot be answered by
-any system that has not seen turn 1, because the string does not say what "it"
-is — the information needed to answer it is not in the question.
-
-**The contrast that proves the memory is doing the work.** Asked cold, in a
-fresh process with no turn 1, the same question is *not refused*:
-
-```
-$ python app.py ask "When does it close?"
-  (best distance 0.424, cutoff 0.65)
-
-Halden Hall closes at 7:00pm (Source: `dining_halden_hall.txt` and `dining_halden_hall_followup.txt`).
-```
-
-It answers confidently about the wrong dining hall. I had expected the relevance
-gate to catch this one — a pronoun question carries almost no topical signal, so
-I assumed it would land beyond the 0.65 cutoff and be refused. It doesn't: it
-lands at 0.424, because "close" on its own is a strong match against a corpus
-full of closing times. The gate has no way to know the question is
-under-specified rather than off-topic; it measures distance, and this question
-is genuinely close to something. So the failure mode here is not a refusal I
-could have spotted — it is a fluent, sourced, wrong answer, which is the harder
-kind to catch.
-
-**What is carried, and what deliberately is not.** Only the previous *question*
-travels forward, never the previous answer. Carrying the answer would push a
-whole paragraph of prose into the string that gets embedded, and retrieval would
-start drifting toward whatever that paragraph happened to mention rather than
-what was asked. The rewritten question is what gets stored for the next turn, so
-a third turn still resolves — *"How much does it cost?"* became *"How much does
-the Atrium cost?"* — while only ever one turn of history is held.
-
-**What it costs.** One extra model call per follow-up turn, on top of the answer
-call. Turn 1 costs what it always did.
-
 ### Result 2 — a second embedding model
 
 **What I built.** `config.EMBEDDING_MODEL` now reads
@@ -542,6 +479,69 @@ three paired runs regardless.
 That is a finding I would not have got from reading model cards, and it points
 at the real lever for criterion 5: the fix for retrieval latency is the
 inference runtime, not a smaller model.
+
+### Result 3 — conversational memory
+
+**What I built.** `python app.py chat`. Turn 1 goes to the existing
+`ask_pipeline` unchanged. From turn 2 on, the previous question and the new
+follow-up go to the model first, with an instruction to rewrite the follow-up so
+it stands on its own; that rewritten string is what gets retrieved on and
+prompted with. `ask_pipeline`, `generate.py`, `store.py` and `serve.py` are
+untouched — the whole feature is `cmd_chat` plus one helper in `app.py`.
+
+**The two-turn exchange**, pasted as run:
+
+```
+> What is good about dining at the Atrium?
+  (best distance 0.413, cutoff 0.65)
+
+According to `dining_the_atrium.txt`, what is good about dining at The Atrium is that it features genuinely good sandwiches that are restocked twice a day, and there is no queue because it is all grab-and-go refrigerated cases.
+
+Sources retrieved: dining_pellew_dining_hall_followup.txt, dining_the_atrium.txt, dining_the_atrium_followup.txt
+
+> When does it close?
+  (resolved to: When does the Atrium close?)
+  (best distance 0.387, cutoff 0.65)
+
+The Atrium is open from 8:00 am to 6:00 pm on weekdays (dining_the_atrium.txt).
+
+Sources retrieved: dining_halden_hall_followup.txt, dining_the_atrium.txt, dining_the_atrium_followup.txt
+```
+
+Turn 2 contains no subject at all. *"When does it close?"* cannot be answered by
+any system that has not seen turn 1, because the string does not say what "it"
+is — the information needed to answer it is not in the question.
+
+**The contrast that proves the memory is doing the work.** Asked cold, in a
+fresh process with no turn 1, the same question is *not refused*:
+
+```
+$ python app.py ask "When does it close?"
+  (best distance 0.424, cutoff 0.65)
+
+Halden Hall closes at 7:00pm (Source: `dining_halden_hall.txt` and `dining_halden_hall_followup.txt`).
+```
+
+It answers confidently about the wrong dining hall. I had expected the relevance
+gate to catch this one — a pronoun question carries almost no topical signal, so
+I assumed it would land beyond the 0.65 cutoff and be refused. It doesn't: it
+lands at 0.424, because "close" on its own is a strong match against a corpus
+full of closing times. The gate has no way to know the question is
+under-specified rather than off-topic; it measures distance, and this question
+is genuinely close to something. So the failure mode here is not a refusal I
+could have spotted — it is a fluent, sourced, wrong answer, which is the harder
+kind to catch.
+
+**What is carried, and what deliberately is not.** Only the previous *question*
+travels forward, never the previous answer. Carrying the answer would push a
+whole paragraph of prose into the string that gets embedded, and retrieval would
+start drifting toward whatever that paragraph happened to mention rather than
+what was asked. The rewritten question is what gets stored for the next turn, so
+a third turn still resolves — *"How much does it cost?"* became *"How much does
+the Atrium cost?"* — while only ever one turn of history is held.
+
+**What it costs.** One extra model call per follow-up turn, on top of the answer
+call. Turn 1 costs what it always did.
 
 ---
 
