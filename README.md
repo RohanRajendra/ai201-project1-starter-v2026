@@ -445,6 +445,109 @@ the Atrium cost?"* — while only ever one turn of history is held.
 **What it costs.** One extra model call per follow-up turn, on top of the answer
 call. Turn 1 costs what it always did.
 
+### Result 2 — a second embedding model
+
+**What I built.** `config.EMBEDDING_MODEL` now reads
+`os.getenv("AI201_EMBEDDING_MODEL", "all-MiniLM-L6-v2")`, matching how `CORPUS`
+and `MODEL` already work either side of it. That one line is the whole code
+change: `store._sentence_transformer`, the `--variant` flag and
+`config.collection_name` were all already in the starter. With the variable
+unset, nothing about the system changes.
+
+```
+pip install 'sentence-transformers>=3.4,<3.5'
+AI201_EMBEDDING_MODEL=all-mpnet-base-v2 python app.py --variant mpnet index
+AI201_EMBEDDING_MODEL=all-mpnet-base-v2 python app.py --variant mpnet retrieve "<q>"
+```
+
+`--variant mpnet` puts the second index in its own collection, so both models
+stay queryable and the MiniLM numbers above remain reproducible.
+`requirements.txt` is deliberately untouched — the starter excludes
+`sentence-transformers` on purpose, since it pulls PyTorch.
+
+**The same ten questions, both models.** Best distance per question, MiniLM
+(384-dimensional) against `all-mpnet-base-v2` (768-dimensional):
+
+| Question | In corpus? | MiniLM | mpnet | Δ |
+|---|---|---|---|---|
+| When does a grade appeal go to the department? | Yes | 0.2025 | 0.1868 | −0.0156 |
+| When does Halden Hall close? | Yes | 0.2326 | 0.2450 | +0.0124 |
+| What is good about dining at the Atrium? | Yes | 0.4126 | 0.3484 | −0.0642 |
+| What are the assessments for Linear Algebra? | Yes | 0.4264 | 0.4055 | −0.0210 |
+| How to get an urgent health appointment? | Yes | 0.4552 | 0.4930 | +0.0378 |
+| What is the capital of Mongolia? | No | 0.8246 | 0.8134 | −0.0112 |
+| What is the recommended dosage of ibuprofen for a headache? | No | 0.8477 | 0.8515 | +0.0038 |
+| How do I write a for loop in Rust? | No | 0.8768 | 0.7987 | −0.0781 |
+| Who won the 1994 World Cup? | No | 0.8859 | 0.9135 | +0.0276 |
+| How do I change the oil in a diesel engine? | No | 0.9231 | 0.8477 | −0.0754 |
+
+**Which direction things moved.** The separation got *worse*, not better. The
+worst in-corpus question moved out from 0.4552 to 0.4930 and the closest
+off-topic one moved in from 0.8246 to 0.7987, so the gap narrowed from **0.3694
+to 0.3057** — about 17% of the headroom gone. Nothing crossed, though: at 0.65,
+both models still answer 5 of 5 in-corpus questions and refuse 5 of 5 off-topic
+ones.
+
+**Does 0.65 transfer?** I expected it not to, because a different model means a
+different distance scale and the number was calibrated against MiniLM. It does,
+and by a closer margin than I would have guessed: computing the midpoint of
+mpnet's own gap the same way I computed 0.65 gives **0.6459**. The cutoff I
+already had is within 0.005 of the one I would have derived from scratch. That
+is a coincidence rather than a law — both models are cosine-normalised
+sentence encoders trained on overlapping data, so their scales are similar —
+but on this corpus the threshold survives the swap.
+
+**Where mpnet is actually worse.** The interesting failure is in the
+topically-adjacent questions from my cutoff section — the ones no threshold can
+separate:
+
+| Off-topic but topically adjacent | MiniLM | mpnet | Δ |
+|---|---|---|---|
+| What are the dining hall hours at Stanford? | 0.4043 | 0.3906 | −0.0137 |
+| Which residence hall has the best gym? | 0.4781 | 0.4761 | −0.0020 |
+| What time does the campus bookstore close? | 0.5039 | 0.4795 | −0.0244 |
+| **What is the workload for CHEM 101?** | **0.5350** | **0.3704** | **−0.1646** |
+| How much does a meal plan cost at community college? | 0.5541 | 0.5299 | −0.0242 |
+| How do I appeal a parking ticket in Boston? | 0.6084 | 0.6865 | +0.0781 |
+
+CHEM 101 is the one that matters. My corpus has no CHEM 101 document. Under
+MiniLM it sat at 0.5350, above four of my five real questions. Under mpnet it
+drops to 0.3704 — closer than three of my five real questions, and closer than
+the Atrium question I actually expect to answer. mpnet has learned the
+*shape* of "workload for a course code" well enough that it matches my workload
+documents strongly whether or not the specific course exists. A better embedding
+model made the confusable case more confusable, because being better at topical
+similarity is exactly the wrong skill for telling *this* campus from any campus.
+The parking-ticket question moved the other way and now sits above 0.65, so
+mpnet would refuse it where MiniLM did not.
+
+**One ranking improvement.** On the Atrium question, the answer-bearing chunk
+`dining_the_atrium.txt#0` moves from **rank 4 under MiniLM to rank 3 under
+mpnet** — still behind the hours chunk, but inside a top-k of 3 without needing
+the `--source` filter.
+
+**The unexpected result: mpnet is faster.** Three paired runs of
+`retrieve ... --time` on the same machine, same minute:
+
+| Run | MiniLM (384d, ONNX) | mpnet (768d, PyTorch) |
+|---|---|---|
+| 1 | 170.5 ms | 59.5 ms |
+| 2 | 177.5 ms | 47.7 ms |
+| 3 | 193.2 ms | 42.1 ms |
+
+Twice the vector width, three to four times faster. The vector width is not what
+is being measured: the Chroma lookup is about 3ms either way, and almost all of
+this is the query embedding. MiniLM arrives as an ONNX build that runs
+single-threaded on the CPU, while `sentence-transformers` loads mpnet through
+PyTorch, which uses the machine's accelerated multi-threaded backend. The
+*runtime* dominates the *model*. Absolute numbers here are higher than the ones
+in criterion 5 because the machine was under load; the ratio held across all
+three paired runs regardless.
+
+That is a finding I would not have got from reading model cards, and it points
+at the real lever for criterion 5: the fix for retrieval latency is the
+inference runtime, not a smaller model.
+
 ---
 
 # Unit 2

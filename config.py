@@ -69,7 +69,12 @@ THRESHOLD = 0.65
 # stretch option — switches to loading that model from Hugging Face instead,
 # which needs `pip install 'sentence-transformers>=3.4,<3.5'` first. store.py
 # says so with a real error message rather than a stack trace if you forget.
-EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+#
+# Overridable by AI201_EMBEDDING_MODEL, like CORPUS and MODEL either side of it,
+# so comparing two models is an env var on one command rather than an edit to
+# this file. Pair it with --variant so the second index sits beside the first
+# instead of replacing it.
+EMBEDDING_MODEL = os.getenv("AI201_EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 MODEL = os.getenv("AI201_MODEL", "gemini-3.5-flash-lite")
 
 
