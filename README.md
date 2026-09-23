@@ -4,19 +4,6 @@
 
 Name: Rohan Rajendra. Corpus: Campus Life
 
-> **This file is your submission.** Fill it in as you go — most sections get
-> written during the milestone that produces them, not at the end.
->
-> How the starter works, and every command you'll need, is in `RUNNING.md`.
-> Leave that file alone.
->
-> **Paste everything as text.** No screenshots, no video. A typed table gets
-> full credit; a picture of the same table gets none.
->
-> Delete these instruction blocks as you replace them. The `<!-- -->` comments
-> are notes to you and don't show up when the page renders — you can leave them
-> or remove them.
-
 ---
 
 # Unit 1
@@ -179,6 +166,14 @@ According to `dining_the_atrium.txt`, what is good about dining at The Atrium is
 Sources retrieved: dining_pellew_dining_hall_followup.txt, dining_the_atrium.txt, dining_the_atrium_followup.txt
 ```
 
+Three sources are listed but the answer cites one, and that is the grounding
+working rather than two citations going missing. "Sources retrieved" is the
+whole top-k set handed to the model; `GROUNDING_INSTRUCTION` then asks it to
+name the file each fact actually came from. Here every fact came from
+`dining_the_atrium.txt`, so that is the only file named. Criterion 2 asks that
+an answer name at least one source, and a retrieved chunk that contributed
+nothing is not a source.
+
 **My relevance cutoff:** 0.65
 
 <!-- The number you set in config.py, and how you got there.
@@ -278,7 +273,7 @@ than defend its answer; the one-sentence-carryover version added 2,649 duplicate
 characters and pushed sandwich-restocking text into the Atrium's hours chunk. So
 I kept 0, for a reason I could state.
 
-**2. Simulating the different retrival distances for a bunch of test questions.** To zero in on the cutoff point. I set a bunch of sample questions, both on topic and off topic, and ran some simulations with different cutoffs to land at a midpoint value of 0.65, Claude was useful in creating the questions and running different simulations of the cutoff point. I kept
+**2. Simulating the different retrieval distances for a bunch of test questions.** To zero in on the cutoff point. I set a bunch of sample questions, both on topic and off topic, and ran some simulations with different cutoffs to land at a midpoint value of 0.65, Claude was useful in creating the questions and running different simulations of the cutoff point. I kept
 0.65, because no cutoff separates "this campus's dining" from "some campus's
 dining," but updated the section to highlight the current limitations and why the
 grounding instruction layer should be able to catch it.
@@ -572,7 +567,7 @@ inference runtime, not a smaller model.
 |---|---|---|---|---|---|
 | 1. Retrieved chunk contains the answer | 4 of 5 |  |  |  |  |
 | 2. Every answer names a source | 5 of 5 |  |  |  |  |
-| 3. Gate stops out-of-corpus questions | 4 of 5 |  |  |  |  |
+| 3. Gate stops out-of-corpus questions | 5 of 5 |  |  |  |  |
 | 4. | | | | | |
 | 5. | | | | | |
 
@@ -637,7 +632,7 @@ inference runtime, not a smaller model.
 |---|---|---|---|---|---|
 | 1. Retrieved chunk contains the answer | 4 of 5 |  |  |  |  |
 | 2. Every answer names a source | 5 of 5 |  |  |  |  |
-| 3. Gate stops out-of-corpus questions | 4 of 5 |  |  |  |  |
+| 3. Gate stops out-of-corpus questions | 5 of 5 |  |  |  |  |
 | 4. | | | | | |
 | 5. | | | | | |
 
