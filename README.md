@@ -288,6 +288,35 @@ grounding instruction layer should be able to catch it.
      claims earns nothing.
      ───────────────────────────────────────────────────────────────────────── -->
 
+## Stretch Features
+
+Declared here before any of them was built. All three are additive: no existing
+command's output changes, and `serve.py`, `run_eval.py` and `ask_pipeline` are
+untouched.
+
+**1. Metadata filtering on retrieval.** `build_index` already writes a `source`
+field into Chroma's metadata and nothing in the repo ever queries it. I want a
+`--source FILENAME` flag on `python app.py retrieve` that narrows the search to
+one document. The reason is a problem I already measured, three sections up: the
+Atrium question's answer-bearing chunk (`dining_the_atrium.txt#0`) comes back at
+rank 4, behind two chunks from the follow-up post. I want to find out whether
+filtering by source fixes a ranking problem I documented before I knew this
+feature existed.
+
+**2. A second embedding model.** Re-index the same corpus with
+`all-mpnet-base-v2` (768-dimensional) alongside the bundled MiniLM
+(384-dimensional), keep both indexes side by side rather than replacing one with
+the other, and re-run the same ten questions from my distance table on each. The
+question I actually want answered is whether 0.65 still separates in-corpus from
+off-topic on a model it was never calibrated against.
+
+**3. Conversational memory.** A `python app.py chat` command that carries the
+previous turn, so a follow-up like *"when does it close?"* — a question with no
+subject in it at all — resolves against the question before it. The hard part is
+not storing the history. It is that a bare pronoun question embeds badly against
+the corpus and gets refused by the 0.65 gate before the model ever runs, so the
+follow-up has to be rewritten into a self-contained query *before* retrieval.
+
 ---
 
 # Unit 2
