@@ -19,6 +19,9 @@ chroma/
 # Cached model responses
 .cache/
 
+# local model artifacts
+.superpowers/
+
 # OS noise
 .DS_Store
 Thumbs.db
