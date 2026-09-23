@@ -144,6 +144,52 @@ def cmd_chunks(args):
     print("without reading what came before or after?")
 
 
+RETRIEVAL_TIMING_RUNS = 5
+
+
+def _print_retrieval_timing(args):
+    """Criterion 5's instrument: how long one warm retrieval takes.
+
+    Called only when `--time` is passed, after the distance table has already
+    been printed, so nothing about the default output changes. The first
+    `search` in `cmd_retrieve` has already loaded the ONNX embedder and opened
+    the Chroma collection; the discarded warm-up below makes that true whatever
+    order the caller reads this in, and then the timed runs measure steady
+    state rather than start-up.
+    """
+    from statistics import median
+    from store import search
+
+    def one():
+        return search(
+            args.question,
+            top_k=args.top_k or config.TOP_K,
+            corpus=args.corpus or config.CORPUS,
+            variant=args.variant,
+        )
+
+    one()  # warm-up, discarded
+
+    samples = []
+    for _ in range(RETRIEVAL_TIMING_RUNS):
+        started = time.perf_counter()
+        one()
+        samples.append((time.perf_counter() - started) * 1000)
+
+    print(
+        f"\nRetrieval timing, {RETRIEVAL_TIMING_RUNS} runs after one discarded "
+        f"warm-up:"
+    )
+    print(
+        f"  min {min(samples):.1f} ms   median {median(samples):.1f} ms   "
+        f"max {max(samples):.1f} ms"
+    )
+    print("  This times store.search() alone: embedding the question, then the")
+    print("  Chroma lookup. It EXCLUDES process start-up, loading the embedding")
+    print("  model, and the generation call — none of which happen again once")
+    print("  the process is warm.")
+
+
 def cmd_retrieve(args):
     """Milestone 4. Retrieval only, with distances, and no model call."""
     from store import search
@@ -169,6 +215,10 @@ def cmd_retrieve(args):
 
     decision = gate.check(results)
     print(f"\nGate: {decision.explanation}")
+
+    if getattr(args, "time", False):
+        _print_retrieval_timing(args)
+
     print("\nLower is better. 0.3 is a close match, 0.9 is unrelated.")
     print("Milestone 4: run your five questions, then the five in OUT_OF_SCOPE")
     print("that your documents clearly don't cover, and look for the gap")
@@ -360,6 +410,15 @@ def build_parser():
     p_ret = sub.add_parser("retrieve", help="show distances only (Milestone 4)")
     p_ret.add_argument("question")
     p_ret.add_argument("--top-k", type=int)
+    p_ret.add_argument(
+        "--time",
+        action="store_true",
+        help=(
+            "also time the retrieval step: 5 warm runs of store.search(), "
+            "reported as min/median/max in ms. Excludes process start-up, "
+            "model load and the generation call"
+        ),
+    )
     p_ret.set_defaults(func=cmd_retrieve)
 
     p_ask = sub.add_parser("ask", help="ask a question")
