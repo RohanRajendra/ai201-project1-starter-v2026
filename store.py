@@ -183,11 +183,19 @@ def search(
     top_k: int | None = None,
     corpus: str | None = None,
     variant: str = "default",
+    source: str | None = None,
 ) -> list[Result]:
     """
     Retrieve the chunks closest in meaning to a question.
 
     Returns them nearest-first, each with its distance.
+
+    `source` narrows the search to one document, by the filename `build_index`
+    already stores in each chunk's metadata. Leave it as None — the default —
+    and this makes exactly the query it always made. Note that `n_results` is
+    still capped by the *unfiltered* collection size, so a filtered search
+    legitimately returns fewer rows than top_k asked for; that is Chroma
+    running out of matching chunks, not an error.
     """
     top_k = top_k or config.TOP_K
     name = config.collection_name(corpus, variant)
@@ -202,6 +210,7 @@ def search(
     raw = collection.query(
         query_embeddings=embed([question]),
         n_results=min(top_k, collection.count()),
+        where={"source": {"$eq": source}} if source is not None else None,
     )
 
     results: list[Result] = []

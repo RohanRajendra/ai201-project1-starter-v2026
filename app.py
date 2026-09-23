@@ -166,6 +166,7 @@ def _print_retrieval_timing(args):
             top_k=args.top_k or config.TOP_K,
             corpus=args.corpus or config.CORPUS,
             variant=args.variant,
+            source=getattr(args, "source", None),
         )
 
     one()  # warm-up, discarded
@@ -195,18 +196,30 @@ def cmd_retrieve(args):
     from store import search
     import gate
 
+    source = getattr(args, "source", None)
+
     results = search(
         args.question,
         top_k=args.top_k or config.TOP_K,
         corpus=args.corpus or config.CORPUS,
         variant=args.variant,
+        source=source,
     )
 
     if not results:
-        print("Nothing came back. Have you run `python app.py index`?")
+        if source:
+            print(
+                f"\nNo chunks came back from '{source}'. Check the filename "
+                f"against the `source:` labels in `python app.py chunks`."
+            )
+        else:
+            print("Nothing came back. Have you run `python app.py index`?")
         return
 
-    print(f"\nQuestion: {args.question}\n")
+    print(f"\nQuestion: {args.question}")
+    if source:
+        print(f"Filtered to source: {source}")
+    print()
     print(f"{'#':<3} {'distance':<10} {'source':<32} preview")
     print("-" * 100)
     for i, r in enumerate(results, 1):
@@ -410,6 +423,15 @@ def build_parser():
     p_ret = sub.add_parser("retrieve", help="show distances only (Milestone 4)")
     p_ret.add_argument("question")
     p_ret.add_argument("--top-k", type=int)
+    p_ret.add_argument(
+        "--source",
+        metavar="FILENAME",
+        help=(
+            "narrow retrieval to one source document, e.g. "
+            "--source dining_the_atrium.txt. Filters on the `source` field "
+            "build_index already writes into the vector store's metadata"
+        ),
+    )
     p_ret.add_argument(
         "--time",
         action="store_true",

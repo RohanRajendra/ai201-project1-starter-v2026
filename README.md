@@ -317,6 +317,71 @@ not storing the history. It is that a bare pronoun question embeds badly against
 the corpus and gets refused by the 0.65 gate before the model ever runs, so the
 follow-up has to be rewritten into a self-contained query *before* retrieval.
 
+### Result 1 — metadata filtering on retrieval
+
+**What I built.** `store.search` takes an optional `source=`, which becomes a
+Chroma `where` filter on the metadata `build_index` was already writing and
+nothing was reading. `python app.py retrieve` exposes it as `--source FILENAME`.
+With no `--source` the query is the one it always made, so `serve.py`,
+`run_eval.py` and `ask_pipeline` are untouched.
+
+**Before** — `python app.py retrieve "What is good about dining at the Atrium?"`
+
+```
+Question: What is good about dining at the Atrium?
+
+#   distance   source                           preview
+----------------------------------------------------------------------------------------------------
+1   0.4126     dining_the_atrium.txt            The Atrium  Hours are 8:00am to 6:00pm weekdays. Cos...
+2   0.4324     dining_the_atrium_followup.txt   Re: The Atrium  Adding to what people have said abou...
+3   0.5275     dining_the_atrium_followup.txt   Re: The Atrium  Also worth saying: picked clean by 1...
+4   0.5311     dining_the_atrium.txt            The Atrium  Transferred in last year, so take this w...
+5   0.5412     dining_pellew_dining_hall_followup.txt Re: Pellew Dining Hall  Also worth saying: the furth...
+
+Gate: best distance 0.413 is under the 0.65 cutoff
+```
+
+**After** — the same question with `--source dining_the_atrium.txt`
+
+```
+Question: What is good about dining at the Atrium?
+Filtered to source: dining_the_atrium.txt
+
+#   distance   source                           preview
+----------------------------------------------------------------------------------------------------
+1   0.4126     dining_the_atrium.txt            The Atrium  Hours are 8:00am to 6:00pm weekdays. Cos...
+2   0.5311     dining_the_atrium.txt            The Atrium  Transferred in last year, so take this w...
+
+Gate: best distance 0.413 is under the 0.65 cutoff
+```
+
+**What changed, and what didn't.** The answer-bearing chunk here is
+`dining_the_atrium.txt#0` — the one beginning *"Transferred in last year"*, which
+holds *"genuinely good sandwiches restocked twice a day"*. That is the chunk my
+Sample Answer section above records at **rank 4**, behind the hours chunk and two
+chunks from the follow-up post. Filtering drops the two follow-up chunks and
+moves it from **rank 4 of 5 to rank 2 of 2**, which is the difference between
+missing and surviving a top-k of 3.
+
+It did **not** fix the ranking itself, and that is the more useful result. Inside
+`dining_the_atrium.txt`, the hours chunk (`#0` is the review, `#1` the hours) is
+*still* closer to the question at 0.4126 than the sandwiches chunk at 0.5311 —
+on a question asking what is *good* about the Atrium. Both chunks carry the same
+`The Atrium` title prefix, so the title contributes equally to both and the
+ranking turns on the body; "hours" and "costs one meal swipe" apparently sit
+closer to the question's embedding than "worth going for" does. Metadata
+filtering narrows *which documents* are eligible; it has no opinion about which
+chunk inside them answers the question.
+
+The honest scope of this feature: it fixes the case where the right document is
+known and competing documents are crowding it out. It is not a relevance fix,
+and I only know that because I had the rank-4 measurement written down before I
+built it.
+
+The filter is close to free. Timing the Chroma lookup alone over the same 122
+chunks, unfiltered runs at a 4.4ms median and `where source=...` at 5.0ms — a
+metadata `$eq` on a collection this small costs about half a millisecond.
+
 ---
 
 # Unit 2
