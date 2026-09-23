@@ -4,19 +4,6 @@
 
 Name: Rohan Rajendra. Corpus: Campus Life
 
-> **This file is your submission.** Fill it in as you go — most sections get
-> written during the milestone that produces them, not at the end.
->
-> How the starter works, and every command you'll need, is in `RUNNING.md`.
-> Leave that file alone.
->
-> **Paste everything as text.** No screenshots, no video. A typed table gets
-> full credit; a picture of the same table gets none.
->
-> Delete these instruction blocks as you replace them. The `<!-- -->` comments
-> are notes to you and don't show up when the page renders — you can leave them
-> or remove them.
-
 ---
 
 # Unit 1
@@ -179,6 +166,14 @@ According to `dining_the_atrium.txt`, what is good about dining at The Atrium is
 Sources retrieved: dining_pellew_dining_hall_followup.txt, dining_the_atrium.txt, dining_the_atrium_followup.txt
 ```
 
+Three sources are listed but the answer cites one, and that is the grounding
+working rather than two citations going missing. "Sources retrieved" is the
+whole top-k set handed to the model; `GROUNDING_INSTRUCTION` then asks it to
+name the file each fact actually came from. Here every fact came from
+`dining_the_atrium.txt`, so that is the only file named. Criterion 2 asks that
+an answer name at least one source, and a retrieved chunk that contributed
+nothing is not a source.
+
 **My relevance cutoff:** 0.65
 
 <!-- The number you set in config.py, and how you got there.
@@ -278,7 +273,7 @@ than defend its answer; the one-sentence-carryover version added 2,649 duplicate
 characters and pushed sandwich-restocking text into the Atrium's hours chunk. So
 I kept 0, for a reason I could state.
 
-**2. Simulating the different retrival distances for a bunch of test questions.** To zero in on the cutoff point. I set a bunch of sample questions, both on topic and off topic, and ran some simulations with different cutoffs to land at a midpoint value of 0.65, Claude was useful in creating the questions and running different simulations of the cutoff point. I kept
+**2. Simulating the different retrieval distances for a bunch of test questions.** To zero in on the cutoff point. I set a bunch of sample questions, both on topic and off topic, and ran some simulations with different cutoffs to land at a midpoint value of 0.65, Claude was useful in creating the questions and running different simulations of the cutoff point. I kept
 0.65, because no cutoff separates "this campus's dining" from "some campus's
 dining," but updated the section to highlight the current limitations and why the
 grounding instruction layer should be able to catch it.
@@ -287,6 +282,266 @@ grounding instruction layer should be able to catch it.
      Doing one? Say so here BEFORE you start. A feature this README never
      claims earns nothing.
      ───────────────────────────────────────────────────────────────────────── -->
+
+## Stretch Features
+
+Declared here before any of them was built. All three are additive: no existing
+command's output changes, and `serve.py`, `run_eval.py` and `ask_pipeline` are
+untouched.
+
+**1. Metadata filtering on retrieval.** `build_index` already writes a `source`
+field into Chroma's metadata and nothing in the repo ever queries it. I want a
+`--source FILENAME` flag on `python app.py retrieve` that narrows the search to
+one document. The reason is a problem I already measured, three sections up: the
+Atrium question's answer-bearing chunk (`dining_the_atrium.txt#0`) comes back at
+rank 4, behind two chunks from the follow-up post. I want to find out whether
+filtering by source fixes a ranking problem I documented before I knew this
+feature existed.
+
+**2. A second embedding model.** Re-index the same corpus with
+`all-mpnet-base-v2` (768-dimensional) alongside the bundled MiniLM
+(384-dimensional), keep both indexes side by side rather than replacing one with
+the other, and re-run the same ten questions from my distance table on each. The
+question I actually want answered is whether 0.65 still separates in-corpus from
+off-topic on a model it was never calibrated against.
+
+**3. Conversational memory.** A `python app.py chat` command that carries the
+previous turn, so a follow-up like *"when does it close?"* — a question with no
+subject in it at all — resolves against the question before it. The hard part is
+not storing the history. It is that a bare pronoun question embeds badly against
+the corpus and gets refused by the 0.65 gate before the model ever runs, so the
+follow-up has to be rewritten into a self-contained query *before* retrieval.
+
+### Result 1 — metadata filtering on retrieval
+
+**What I built.** `store.search` takes an optional `source=`, which becomes a
+Chroma `where` filter on the metadata `build_index` was already writing and
+nothing was reading. `python app.py retrieve` exposes it as `--source FILENAME`.
+With no `--source` the query is the one it always made, so `serve.py`,
+`run_eval.py` and `ask_pipeline` are untouched.
+
+**Before** — `python app.py retrieve "What is good about dining at the Atrium?"`
+
+```
+Question: What is good about dining at the Atrium?
+
+#   distance   source                           preview
+----------------------------------------------------------------------------------------------------
+1   0.4126     dining_the_atrium.txt            The Atrium  Hours are 8:00am to 6:00pm weekdays. Cos...
+2   0.4324     dining_the_atrium_followup.txt   Re: The Atrium  Adding to what people have said abou...
+3   0.5275     dining_the_atrium_followup.txt   Re: The Atrium  Also worth saying: picked clean by 1...
+4   0.5311     dining_the_atrium.txt            The Atrium  Transferred in last year, so take this w...
+5   0.5412     dining_pellew_dining_hall_followup.txt Re: Pellew Dining Hall  Also worth saying: the furth...
+
+Gate: best distance 0.413 is under the 0.65 cutoff
+```
+
+**After** — the same question with `--source dining_the_atrium.txt`
+
+```
+Question: What is good about dining at the Atrium?
+Filtered to source: dining_the_atrium.txt
+
+#   distance   source                           preview
+----------------------------------------------------------------------------------------------------
+1   0.4126     dining_the_atrium.txt            The Atrium  Hours are 8:00am to 6:00pm weekdays. Cos...
+2   0.5311     dining_the_atrium.txt            The Atrium  Transferred in last year, so take this w...
+
+Gate: best distance 0.413 is under the 0.65 cutoff
+```
+
+**What changed, and what didn't.** The answer-bearing chunk here is
+`dining_the_atrium.txt#0` — the one beginning *"Transferred in last year"*, which
+holds *"genuinely good sandwiches restocked twice a day"*. That is the chunk my
+Sample Answer section above records at **rank 4**, behind the hours chunk and two
+chunks from the follow-up post. Filtering drops the two follow-up chunks and
+moves it from **rank 4 of 5 to rank 2 of 2**, which is the difference between
+missing and surviving a top-k of 3.
+
+It did **not** fix the ranking itself, and that is the more useful result. Inside
+`dining_the_atrium.txt`, the hours chunk (`#0` is the review, `#1` the hours) is
+*still* closer to the question at 0.4126 than the sandwiches chunk at 0.5311 —
+on a question asking what is *good* about the Atrium. Both chunks carry the same
+`The Atrium` title prefix, so the title contributes equally to both and the
+ranking turns on the body; "hours" and "costs one meal swipe" apparently sit
+closer to the question's embedding than "worth going for" does. Metadata
+filtering narrows *which documents* are eligible; it has no opinion about which
+chunk inside them answers the question.
+
+The honest scope of this feature: it fixes the case where the right document is
+known and competing documents are crowding it out. It is not a relevance fix,
+and I only know that because I had the rank-4 measurement written down before I
+built it.
+
+The filter is close to free. Timing the Chroma lookup alone over the same 122
+chunks, unfiltered runs at a 4.4ms median and `where source=...` at 5.0ms — a
+metadata `$eq` on a collection this small costs about half a millisecond.
+
+### Result 2 — a second embedding model
+
+**What I built.** `config.EMBEDDING_MODEL` now reads
+`os.getenv("AI201_EMBEDDING_MODEL", "all-MiniLM-L6-v2")`, matching how `CORPUS`
+and `MODEL` already work either side of it. That one line is the whole code
+change: `store._sentence_transformer`, the `--variant` flag and
+`config.collection_name` were all already in the starter. With the variable
+unset, nothing about the system changes.
+
+```
+pip install 'sentence-transformers>=3.4,<3.5'
+AI201_EMBEDDING_MODEL=all-mpnet-base-v2 python app.py --variant mpnet index
+AI201_EMBEDDING_MODEL=all-mpnet-base-v2 python app.py --variant mpnet retrieve "<q>"
+```
+
+`--variant mpnet` puts the second index in its own collection, so both models
+stay queryable and the MiniLM numbers above remain reproducible.
+`requirements.txt` is deliberately untouched — the starter excludes
+`sentence-transformers` on purpose, since it pulls PyTorch.
+
+**The same ten questions, both models.** Best distance per question, MiniLM
+(384-dimensional) against `all-mpnet-base-v2` (768-dimensional):
+
+| Question | In corpus? | MiniLM | mpnet | Δ |
+|---|---|---|---|---|
+| When does a grade appeal go to the department? | Yes | 0.2025 | 0.1868 | −0.0156 |
+| When does Halden Hall close? | Yes | 0.2326 | 0.2450 | +0.0124 |
+| What is good about dining at the Atrium? | Yes | 0.4126 | 0.3484 | −0.0642 |
+| What are the assessments for Linear Algebra? | Yes | 0.4264 | 0.4055 | −0.0210 |
+| How to get an urgent health appointment? | Yes | 0.4552 | 0.4930 | +0.0378 |
+| What is the capital of Mongolia? | No | 0.8246 | 0.8134 | −0.0112 |
+| What is the recommended dosage of ibuprofen for a headache? | No | 0.8477 | 0.8515 | +0.0038 |
+| How do I write a for loop in Rust? | No | 0.8768 | 0.7987 | −0.0781 |
+| Who won the 1994 World Cup? | No | 0.8859 | 0.9135 | +0.0276 |
+| How do I change the oil in a diesel engine? | No | 0.9231 | 0.8477 | −0.0754 |
+
+**Which direction things moved.** The separation got *worse*, not better. The
+worst in-corpus question moved out from 0.4552 to 0.4930 and the closest
+off-topic one moved in from 0.8246 to 0.7987, so the gap narrowed from **0.3694
+to 0.3057** — about 17% of the headroom gone. Nothing crossed, though: at 0.65,
+both models still answer 5 of 5 in-corpus questions and refuse 5 of 5 off-topic
+ones.
+
+**Does 0.65 transfer?** I expected it not to, because a different model means a
+different distance scale and the number was calibrated against MiniLM. It does,
+and by a closer margin than I would have guessed: computing the midpoint of
+mpnet's own gap the same way I computed 0.65 gives **0.6459**. The cutoff I
+already had is within 0.005 of the one I would have derived from scratch. That
+is a coincidence rather than a law — both models are cosine-normalised
+sentence encoders trained on overlapping data, so their scales are similar —
+but on this corpus the threshold survives the swap.
+
+**Where mpnet is actually worse.** The interesting failure is in the
+topically-adjacent questions from my cutoff section — the ones no threshold can
+separate:
+
+| Off-topic but topically adjacent | MiniLM | mpnet | Δ |
+|---|---|---|---|
+| What are the dining hall hours at Stanford? | 0.4043 | 0.3906 | −0.0137 |
+| Which residence hall has the best gym? | 0.4781 | 0.4761 | −0.0020 |
+| What time does the campus bookstore close? | 0.5039 | 0.4795 | −0.0244 |
+| **What is the workload for CHEM 101?** | **0.5350** | **0.3704** | **−0.1646** |
+| How much does a meal plan cost at community college? | 0.5541 | 0.5299 | −0.0242 |
+| How do I appeal a parking ticket in Boston? | 0.6084 | 0.6865 | +0.0781 |
+
+CHEM 101 is the one that matters. My corpus has no CHEM 101 document. Under
+MiniLM it sat at 0.5350, above four of my five real questions. Under mpnet it
+drops to 0.3704 — closer than three of my five real questions, and closer than
+the Atrium question I actually expect to answer. mpnet has learned the
+*shape* of "workload for a course code" well enough that it matches my workload
+documents strongly whether or not the specific course exists. A better embedding
+model made the confusable case more confusable, because being better at topical
+similarity is exactly the wrong skill for telling *this* campus from any campus.
+The parking-ticket question moved the other way and now sits above 0.65, so
+mpnet would refuse it where MiniLM did not.
+
+**One ranking improvement.** On the Atrium question, the answer-bearing chunk
+`dining_the_atrium.txt#0` moves from **rank 4 under MiniLM to rank 3 under
+mpnet** — still behind the hours chunk, but inside a top-k of 3 without needing
+the `--source` filter.
+
+**The unexpected result: mpnet is faster.** Three paired runs of
+`retrieve ... --time` on the same machine, same minute:
+
+| Run | MiniLM (384d, ONNX) | mpnet (768d, PyTorch) |
+|---|---|---|
+| 1 | 170.5 ms | 59.5 ms |
+| 2 | 177.5 ms | 47.7 ms |
+| 3 | 193.2 ms | 42.1 ms |
+
+Twice the vector width, three to four times faster. The vector width is not what
+is being measured: the Chroma lookup is about 3ms either way, and almost all of
+this is the query embedding. MiniLM arrives as an ONNX build that runs
+single-threaded on the CPU, while `sentence-transformers` loads mpnet through
+PyTorch, which uses the machine's accelerated multi-threaded backend. The
+*runtime* dominates the *model*. Absolute numbers here are higher than the ones
+in criterion 5 because the machine was under load; the ratio held across all
+three paired runs regardless.
+
+That is a finding I would not have got from reading model cards, and it points
+at the real lever for criterion 5: the fix for retrieval latency is the
+inference runtime, not a smaller model.
+
+### Result 3 — conversational memory
+
+**What I built.** `python app.py chat`. Turn 1 goes to the existing
+`ask_pipeline` unchanged. From turn 2 on, the previous question and the new
+follow-up go to the model first, with an instruction to rewrite the follow-up so
+it stands on its own; that rewritten string is what gets retrieved on and
+prompted with. `ask_pipeline`, `generate.py`, `store.py` and `serve.py` are
+untouched — the whole feature is `cmd_chat` plus one helper in `app.py`.
+
+**The two-turn exchange**, pasted as run:
+
+```
+> What is good about dining at the Atrium?
+  (best distance 0.413, cutoff 0.65)
+
+According to `dining_the_atrium.txt`, what is good about dining at The Atrium is that it features genuinely good sandwiches that are restocked twice a day, and there is no queue because it is all grab-and-go refrigerated cases.
+
+Sources retrieved: dining_pellew_dining_hall_followup.txt, dining_the_atrium.txt, dining_the_atrium_followup.txt
+
+> When does it close?
+  (resolved to: When does the Atrium close?)
+  (best distance 0.387, cutoff 0.65)
+
+The Atrium is open from 8:00 am to 6:00 pm on weekdays (dining_the_atrium.txt).
+
+Sources retrieved: dining_halden_hall_followup.txt, dining_the_atrium.txt, dining_the_atrium_followup.txt
+```
+
+Turn 2 contains no subject at all. *"When does it close?"* cannot be answered by
+any system that has not seen turn 1, because the string does not say what "it"
+is — the information needed to answer it is not in the question.
+
+**The contrast that proves the memory is doing the work.** Asked cold, in a
+fresh process with no turn 1, the same question is *not refused*:
+
+```
+$ python app.py ask "When does it close?"
+  (best distance 0.424, cutoff 0.65)
+
+Halden Hall closes at 7:00pm (Source: `dining_halden_hall.txt` and `dining_halden_hall_followup.txt`).
+```
+
+It answers confidently about the wrong dining hall. I had expected the relevance
+gate to catch this one — a pronoun question carries almost no topical signal, so
+I assumed it would land beyond the 0.65 cutoff and be refused. It doesn't: it
+lands at 0.424, because "close" on its own is a strong match against a corpus
+full of closing times. The gate has no way to know the question is
+under-specified rather than off-topic; it measures distance, and this question
+is genuinely close to something. So the failure mode here is not a refusal I
+could have spotted — it is a fluent, sourced, wrong answer, which is the harder
+kind to catch.
+
+**What is carried, and what deliberately is not.** Only the previous *question*
+travels forward, never the previous answer. Carrying the answer would push a
+whole paragraph of prose into the string that gets embedded, and retrieval would
+start drifting toward whatever that paragraph happened to mention rather than
+what was asked. The rewritten question is what gets stored for the next turn, so
+a third turn still resolves — *"How much does it cost?"* became *"How much does
+the Atrium cost?"* — while only ever one turn of history is held.
+
+**What it costs.** One extra model call per follow-up turn, on top of the answer
+call. Turn 1 costs what it always did.
 
 ---
 
@@ -312,7 +567,7 @@ grounding instruction layer should be able to catch it.
 |---|---|---|---|---|---|
 | 1. Retrieved chunk contains the answer | 4 of 5 |  |  |  |  |
 | 2. Every answer names a source | 5 of 5 |  |  |  |  |
-| 3. Gate stops out-of-corpus questions | 4 of 5 |  |  |  |  |
+| 3. Gate stops out-of-corpus questions | 5 of 5 |  |  |  |  |
 | 4. | | | | | |
 | 5. | | | | | |
 
@@ -377,7 +632,7 @@ grounding instruction layer should be able to catch it.
 |---|---|---|---|---|---|
 | 1. Retrieved chunk contains the answer | 4 of 5 |  |  |  |  |
 | 2. Every answer names a source | 5 of 5 |  |  |  |  |
-| 3. Gate stops out-of-corpus questions | 4 of 5 |  |  |  |  |
+| 3. Gate stops out-of-corpus questions | 5 of 5 |  |  |  |  |
 | 4. | | | | | |
 | 5. | | | | | |
 

@@ -63,7 +63,7 @@ The cost of an incorrect answer must be high. The eval should be built in a way 
 
 ## 4. Something about your chunks
 
-At least 4 of 5 sampled chunks must be hierarchical. They should mention the topic that is discussed in the chunk. 
+All 5 of 5 sampled chunks from `python app.py chunks -n 5` must be hierarchical. That is each one begins with its source document's title line, above the body text. Checked by comparing a chunk's first line to the first line of its named file in `corpora/campus_life/documents/` must match. 
 
 <!-- YOU WRITE THIS ONE.
 
@@ -88,7 +88,7 @@ This is richer context for shorter chunks. Every document in the corpus has a to
 
 ## 5. Your choice
 
-The response time should be under 50ms. 
+The response time should be under 50ms. For each of the five questions in QUESTIONS, `python app.py retrieve "<question>" --time` reports a median under 50ms across its 5 timed runs.
 
 <!-- YOU WRITE THIS ONE TOO.
 

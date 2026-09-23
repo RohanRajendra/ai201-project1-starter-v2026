@@ -5,6 +5,7 @@ The Unofficial Guide — command line.
     python app.py index                  build the search index (do this first)
     python app.py ask "your question"    ask one question
     python app.py ask                    ask questions until you quit
+    python app.py chat                   ask follow-ups that remember the last turn
     python app.py chunks                 print sample chunks      (Milestone 3)
     python app.py retrieve "question"    show distances, no answer (Milestone 4)
     python app.py corpora                list the available corpora
@@ -144,23 +145,82 @@ def cmd_chunks(args):
     print("without reading what came before or after?")
 
 
+RETRIEVAL_TIMING_RUNS = 5
+
+
+def _print_retrieval_timing(args):
+    """Criterion 5's instrument: how long one warm retrieval takes.
+
+    Called only when `--time` is passed, after the distance table has already
+    been printed, so nothing about the default output changes. The first
+    `search` in `cmd_retrieve` has already loaded the ONNX embedder and opened
+    the Chroma collection; the discarded warm-up below makes that true whatever
+    order the caller reads this in, and then the timed runs measure steady
+    state rather than start-up.
+    """
+    from statistics import median
+    from store import search
+
+    def one():
+        return search(
+            args.question,
+            top_k=args.top_k or config.TOP_K,
+            corpus=args.corpus or config.CORPUS,
+            variant=args.variant,
+            source=getattr(args, "source", None),
+        )
+
+    one()  # warm-up, discarded
+
+    samples = []
+    for _ in range(RETRIEVAL_TIMING_RUNS):
+        started = time.perf_counter()
+        one()
+        samples.append((time.perf_counter() - started) * 1000)
+
+    print(
+        f"\nRetrieval timing, {RETRIEVAL_TIMING_RUNS} runs after one discarded "
+        f"warm-up:"
+    )
+    print(
+        f"  min {min(samples):.1f} ms   median {median(samples):.1f} ms   "
+        f"max {max(samples):.1f} ms"
+    )
+    print("  This times store.search() alone: embedding the question, then the")
+    print("  Chroma lookup. It EXCLUDES process start-up, loading the embedding")
+    print("  model, and the generation call — none of which happen again once")
+    print("  the process is warm.")
+
+
 def cmd_retrieve(args):
     """Milestone 4. Retrieval only, with distances, and no model call."""
     from store import search
     import gate
+
+    source = getattr(args, "source", None)
 
     results = search(
         args.question,
         top_k=args.top_k or config.TOP_K,
         corpus=args.corpus or config.CORPUS,
         variant=args.variant,
+        source=source,
     )
 
     if not results:
-        print("Nothing came back. Have you run `python app.py index`?")
+        if source:
+            print(
+                f"\nNo chunks came back from '{source}'. Check the filename "
+                f"against the `source:` labels in `python app.py chunks`."
+            )
+        else:
+            print("Nothing came back. Have you run `python app.py index`?")
         return
 
-    print(f"\nQuestion: {args.question}\n")
+    print(f"\nQuestion: {args.question}")
+    if source:
+        print(f"Filtered to source: {source}")
+    print()
     print(f"{'#':<3} {'distance':<10} {'source':<32} preview")
     print("-" * 100)
     for i, r in enumerate(results, 1):
@@ -169,6 +229,10 @@ def cmd_retrieve(args):
 
     decision = gate.check(results)
     print(f"\nGate: {decision.explanation}")
+
+    if getattr(args, "time", False):
+        _print_retrieval_timing(args)
+
     print("\nLower is better. 0.3 is a close match, 0.9 is unrelated.")
     print("Milestone 4: run your five questions, then the five in OUT_OF_SCOPE")
     print("that your documents clearly don't cover, and look for the gap")
@@ -282,6 +346,84 @@ def _ask_one(
     return outcome["answer"]
 
 
+FOLLOWUP_REWRITE_INSTRUCTION = """You rewrite a follow-up question so that it can stand on its own.
+
+You are given the previous question in a conversation and a follow-up to it.
+Rewrite the follow-up so every pronoun and every implied subject is replaced by
+the thing it refers to, taking the previous question as the only source for what
+that thing is.
+
+Rules:
+- Output only the rewritten question. No explanation, no quotes, no preamble.
+- Change as little as possible. Keep the original wording except where it has to
+  change to make the question self-contained.
+- If the follow-up already stands on its own, output it unchanged."""
+
+
+def _resolve_followup(previous_question: str, followup: str) -> str:
+    """Turn 'when does it close?' into a question retrieval can actually use.
+
+    This is the whole reason `chat` is not just a loop with a list in it. A bare
+    pronoun question carries almost no topical signal, so it embeds far away
+    from everything in the corpus and the relevance gate refuses it before the
+    model is ever reached — the follow-up fails at stage 4, not stage 5.
+    Rewriting it *before* retrieval fixes the gate and the prompt in one move,
+    because `ask_pipeline` uses the same string for both.
+
+    What gets carried is the previous *question*, never the previous answer. An
+    answer is a paragraph of prose, and pasting it into the text we embed would
+    swamp the follow-up's own words and drag retrieval toward whatever the last
+    answer happened to mention.
+    """
+    import generate as gen
+
+    rewritten = gen.generate(
+        f"Previous question: {previous_question}\n"
+        f"Follow-up: {followup}\n\n"
+        f"Rewritten follow-up:",
+        system=FOLLOWUP_REWRITE_INSTRUCTION,
+    ).strip()
+
+    # A rewrite that comes back empty is worse than no rewrite at all.
+    return rewritten or followup
+
+
+def cmd_chat(args):
+    """Stretch feature. `ask`, but each turn is resolved against the last one."""
+    corpus = args.corpus or config.CORPUS
+    import generate as gen
+
+    print("Chat. Each question is resolved against the one before it, so a")
+    print("follow-up like \"when does it close?\" knows what \"it\" is.")
+    print("Press Enter on an empty line to quit.\n")
+
+    previous: str | None = None
+
+    try:
+        while True:
+            try:
+                question = input("> ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                break
+            if not question:
+                break
+
+            asked = question
+            if previous is not None:
+                asked = _resolve_followup(previous, question)
+                if asked != question:
+                    print(f"  (resolved to: {asked})")
+
+            _ask_one(asked, corpus, args.variant, args.top_k, args.threshold)
+
+            # Carry the resolved question, not the raw one, so the subject
+            # survives a third turn that refers back to it again.
+            previous = asked
+    finally:
+        print(gen.usage())
+
+
 def cmd_ask(args):
     corpus = args.corpus or config.CORPUS
     import generate as gen
@@ -360,6 +502,24 @@ def build_parser():
     p_ret = sub.add_parser("retrieve", help="show distances only (Milestone 4)")
     p_ret.add_argument("question")
     p_ret.add_argument("--top-k", type=int)
+    p_ret.add_argument(
+        "--source",
+        metavar="FILENAME",
+        help=(
+            "narrow retrieval to one source document, e.g. "
+            "--source dining_the_atrium.txt. Filters on the `source` field "
+            "build_index already writes into the vector store's metadata"
+        ),
+    )
+    p_ret.add_argument(
+        "--time",
+        action="store_true",
+        help=(
+            "also time the retrieval step: 5 warm runs of store.search(), "
+            "reported as min/median/max in ms. Excludes process start-up, "
+            "model load and the generation call"
+        ),
+    )
     p_ret.set_defaults(func=cmd_retrieve)
 
     p_ask = sub.add_parser("ask", help="ask a question")
@@ -372,6 +532,13 @@ def build_parser():
         help="print the assembled prompt before the answer",
     )
     p_ask.set_defaults(func=cmd_ask)
+
+    p_chat = sub.add_parser(
+        "chat", help="ask follow-up questions that remember the previous turn"
+    )
+    p_chat.add_argument("--top-k", type=int)
+    p_chat.add_argument("--threshold", type=float, help="override the gate cutoff")
+    p_chat.set_defaults(func=cmd_chat)
 
     return parser
 
