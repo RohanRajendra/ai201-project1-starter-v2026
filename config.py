@@ -57,6 +57,11 @@ TOP_K = 5               # how many chunks to pull back per question
 # the in-corpus range. The grounding instruction catches those, not the gate.
 THRESHOLD = 0.65
 
+# Hybrid search, unit 2's stretch. A BM25 keyword ranking is fused with the
+# embedding ranking in store.search. AI201_HYBRID=0 turns it off, which brings
+# back the vector-only search that unit 2's "after" run log measured.
+HYBRID_SEARCH = os.getenv("AI201_HYBRID", "1") != "0"
+
 
 # ─── Models ──────────────────────────────────────────────────────────────────
 # Embeddings run on your own machine and cost no API quota.
