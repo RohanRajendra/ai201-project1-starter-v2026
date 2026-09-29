@@ -1006,13 +1006,77 @@ could quietly undo.
 
 | Criterion | Target | Run 1 | Run 2 | Run 3 | Verdict |
 |---|---|---|---|---|---|
-| 1. Retrieved chunk contains the answer | 4 of 5 |  |  |  |  |
-| 2. Every answer names a source | 5 of 5 |  |  |  |  |
-| 3. Gate stops out-of-corpus questions | 5 of 5 |  |  |  |  |
-| 4. | | | | | |
-| 5. | | | | | |
+| 1. Retrieved chunk contains the answer | 4 of 5 | 5/5 | 5/5 | 5/5 | MET |
+| 2. Every answer names a source | 5 of 5 | 5/5 | 5/5 | 5/5 | MET |
+| 3. Gate stops out-of-corpus questions | 5 of 5 | 5/5 | 5/5 | 5/5 | MET |
+| 4. Sampled chunks begin with their title line | 5 of 5 | 5/5 | 5/5 | 5/5 | MET |
+| 5. Retrieval median under 50 ms, per question | 5 of 5 | 5/5 | 5/5 | 5/5 | MET |
 
-**Did it help?**
+**Where each row comes from.** The commands and counting are the same as the
+before log. The files are labelled `after`:
+
+- **Rows 1–3:** `results/run_2026-09-29_1530_after.md`, from 15 real model
+  calls with none served from cache.
+- **Row 4:** `results/c4_chunks_after.md`.
+- **Row 5:** `results/c5_timing_after.md`, in the same condition as before:
+  battery, Low Power Mode on, no apps closed.
+- **Ranks behind row 1:** `results/c1_retrieve_after.md`.
+
+The machine was busier this time: the load average during the timing passes
+was 4.3–4.8, against 1.6–2.4 for the before log.
+
+Real output for criterion 5 from pass 1, first question, in
+`results/c5_timing_after.md`. It's printed by
+`app.py::_print_retrieval_timing`, timing `store.py::search`:
+
+```text
+Retrieval timing, 5 runs after one discarded warm-up:
+  min 17.4 ms   median 18.3 ms   max 18.9 ms
+  This times store.search() alone: embedding the question, then the
+  Chroma lookup. It EXCLUDES process start-up, loading the embedding
+  model, and the generation call — none of which happen again once
+  the process is warm.
+```
+
+**Did it help?** Yes. Criterion 5 went from MISSED to MET, and nothing else
+moved.
+
+| Question | Before: pass 1 / 2 / 3 | After: pass 1 / 2 / 3 |
+|---|---|---|
+| When does a grade appeal go to the department? | 85.2 / 81.8 / 82.8 ms | 18.3 / 19.0 / 17.9 ms |
+| How to get an urgent health appointment? | 82.9 / 64.7 / 84.1 ms | 17.1 / 21.2 / 16.9 ms |
+| What are the assessments for Linear Algebra? | 86.5 / 81.4 / 85.3 ms | 17.2 / 18.2 / 18.4 ms |
+| When does Halden Hall close? | 92.3 / 82.3 / 81.2 ms | 17.7 / 18.6 / 20.3 ms |
+| What is good about dining at the Atrium? | 84.1 / 83.4 / 82.3 ms | 17.7 / 17.6 / 18.1 ms |
+| **Under 50 ms** | **0 / 0 / 0 of 5** | **5 / 5 / 5 of 5** |
+
+- **Criterion 5 went from 0 of 5 in every pass to 5 of 5 in every pass.**
+  - The fifteen medians fell from 64.7–92.3 ms to 16.9–21.2 ms, about a
+    fifth of what they were (4.5× faster on average).
+  - The slowest median after the change, 21.2 ms, is well under the line.
+- **Criteria 1–4 didn't move.**
+  - `results/c1_retrieve_after.md` matches `results/c1_retrieve_before.md`
+    line for line: same chunks, same order, same distances.
+  - The five chunks sampled for criterion 4 are also identical.
+  - Criterion 2 still has a source in all 15 answers.
+- **How I know it was the change.** Same five questions, same commands, same
+  power condition, and the one argument in `store.py` is the only system
+  difference between the two logs. The after run also had the harder
+  conditions (higher load) and was faster anyway.
+
+**Against my prediction.** I expected 32–38 ms and got 16.9–21.2 ms, so my
+estimate was too pessimistic. The reason is my own method:
+- Section B of the diagnosis timed the four variants against each other in
+  one loop, so every CPU pass ran straight after a CoreML pass.
+- I noted there that its figures shouldn't be compared with anything outside
+  that table, and then I built my prediction from them anyway.
+- In `retrieve --time`, the CPU session runs on its own.
+
+**What the two risks turned into.**
+- **A load spike eating the margin** didn't happen. The after run had the
+  heavier load and still stayed under 22 ms.
+- **The fix being tuned to this device** is still untested. I have run it
+  only on this laptop.
 
 <!-- Say plainly whether it did, and how you know. If it made things worse,
      say that — a change that backfired, honestly reported, earns full credit
