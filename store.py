@@ -1,7 +1,7 @@
 """
 Stages 3 and 4 of the pipeline: embedding chunks and retrieving them.
 
-Three things in here are worth knowing about, because they'd quietly break the
+Four things in here are worth knowing about, because they'd quietly break the
 rest of the project if they were wrong:
 
 1. The Chroma collection is created with cosine distance, explicitly. Chroma
@@ -15,9 +15,16 @@ rest of the project if they were wrong:
    `sentence-transformers`. It is the same model — `all-MiniLM-L6-v2`, 384
    dimensions — but it arrives as an ONNX build from Chroma's own CDN, so the
    install needs neither PyTorch nor a reachable Hugging Face. See `_embedder`.
+
+4. `search` is hybrid since unit 2: a BM25 keyword ranking is fused with the
+   embedding ranking (see `_fuse`), so its results are best-first rather than
+   strictly nearest-first. Every result still carries its real cosine
+   distance, which is what the relevance gate reads. `AI201_HYBRID=0` turns
+   the keyword half off.
 """
 
 import os
+import re
 import shutil
 from dataclasses import dataclass
 
@@ -182,6 +189,69 @@ def build_index(
     return len(chunks)
 
 
+# Reciprocal rank fusion's constant, from the paper that introduced it
+# (Cormack, Clarke & Büttcher, 2009). Deliberately not tuned: the only
+# questions it could be tuned on are the test questions it is measured by.
+RRF_K = 60
+
+_keyword_indexes: dict[str, tuple] = {}
+
+
+def _tokens(text: str) -> list[str]:
+    """Lowercase words and numbers — the only preprocessing BM25 gets."""
+    return re.findall(r"[a-z0-9]+", text.lower())
+
+
+def _keyword_index(collection, name: str):
+    """
+    BM25 over the chunk texts already stored in the collection.
+
+    Built once per process and then reused, like the embedding model: the first
+    search pays for it and later ones don't. Rebuilt if the collection's size
+    changes underneath it.
+    """
+    count = collection.count()
+    cached = _keyword_indexes.get(name)
+    if cached is None or cached[0] != count:
+        from rank_bm25 import BM25Okapi
+
+        stored = collection.get(include=["documents"])
+        bm25 = BM25Okapi([_tokens(text) for text in stored["documents"]])
+        cached = (count, stored["ids"], bm25)
+        _keyword_indexes[name] = cached
+    return cached[1], cached[2]
+
+
+def _fuse(question: str, by_meaning: list[Result], collection, name: str) -> list[Result]:
+    """
+    Reciprocal rank fusion of the embedding ranking with a BM25 ranking.
+
+    Each chunk scores 1/(RRF_K + its embedding rank), plus 1/(RRF_K + its BM25
+    rank) if it shares any word with the question. Only ranks are used, never
+    the raw scores, because cosine distance and BM25 are on scales that can't
+    be compared. BM25 ranks only the chunks the embedding search returned, so
+    a `source` filter applies to both halves. Ties keep embedding order.
+    """
+    ids, bm25 = _keyword_index(collection, name)
+    scores = dict(zip(ids, bm25.get_scores(_tokens(question))))
+
+    by_keyword = sorted(
+        (r for r in by_meaning if scores.get(r.label, 0) > 0),
+        key=lambda r: scores[r.label],
+        reverse=True,
+    )
+    keyword_rank = {r.label: rank for rank, r in enumerate(by_keyword, 1)}
+
+    def fused(ranked):
+        rank, r = ranked
+        score = 1 / (RRF_K + rank)
+        if r.label in keyword_rank:
+            score += 1 / (RRF_K + keyword_rank[r.label])
+        return score
+
+    return [r for _, r in sorted(enumerate(by_meaning, 1), key=fused, reverse=True)]
+
+
 def search(
     question: str,
     top_k: int | None = None,
@@ -190,9 +260,13 @@ def search(
     source: str | None = None,
 ) -> list[Result]:
     """
-    Retrieve the chunks closest in meaning to a question.
+    Retrieve the chunks that best answer a question.
 
-    Returns them nearest-first, each with its distance.
+    Returns the top_k best first, each with its real cosine distance. With
+    config.HYBRID_SEARCH on, "best" is the fusion of the embedding ranking and
+    a BM25 keyword ranking (see `_fuse`), so the order is no longer strictly
+    nearest-first. With it off, this is the nearest-first embedding search that
+    unit 2's "after" run log measured.
 
     `source` narrows the search to one document, by the filename `build_index`
     already stores in each chunk's metadata. Leave it as None — the default —
@@ -211,12 +285,29 @@ def search(
             f"No index called '{name}'. Run `python app.py index` first."
         ) from exc
 
+    where = {"source": {"$eq": source}} if source is not None else None
+
+    if not config.HYBRID_SEARCH:
+        raw = collection.query(
+            query_embeddings=embed([question]),
+            n_results=min(top_k, collection.count()),
+            where=where,
+        )
+        return _results(raw)
+
+    # The embedding half of the fusion ranks every chunk, not just the top_k:
+    # BM25 can only lift a chunk the embedding ranking has a place for. On a
+    # corpus this size, asking Chroma for all of them costs next to nothing.
     raw = collection.query(
         query_embeddings=embed([question]),
-        n_results=min(top_k, collection.count()),
-        where={"source": {"$eq": source}} if source is not None else None,
+        n_results=collection.count(),
+        where=where,
     )
+    return _fuse(question, _results(raw), collection, name)[:top_k]
 
+
+def _results(raw) -> list[Result]:
+    """Chroma's query response as Results, in the order Chroma returned them."""
     results: list[Result] = []
     for text, meta, distance in zip(
         raw["documents"][0], raw["metadatas"][0], raw["distances"][0]
