@@ -1085,6 +1085,95 @@ estimate was too pessimistic. The reason is my own method:
 
      Milestone 4. -->
 
+## Stretch: A Second Improvement — Hybrid Search
+
+**Declared on 2026-09-29, before any of it was built or tried.** I'm
+committing this section first. The code and its run log come in later
+commits.
+
+**What I'm adding.** Keyword search alongside the embedding search, inside
+`store.py::search`:
+
+- **BM25** (`rank-bm25`, already in `requirements.txt`) over the same 122 chunk
+  texts the Chroma collection stores.
+- **Reciprocal rank fusion** to combine the two rankings.
+  - Each chunk scores `1/(60 + its embedding rank) + 1/(60 + its BM25 rank)`,
+    and the top 5 go to the model.
+  - A chunk that shares no word with the question gets no BM25 term.
+  - 60 is the standard constant from the paper that introduced reciprocal
+    rank fusion. I'm not tuning it.
+- **Real cosine distances on every returned chunk**, so the relevance gate
+  still compares the same kind of number against 0.65.
+- **A switch, `AI201_HYBRID=0`**, which brings back the vector-only search the
+  after run measured, so that log stays reproducible.
+
+**Why rank fusion rather than a weighted score.** These are the factors I
+weighed before choosing. It's reasoning, not measurement: I haven't run
+either method.
+
+| Factor | Reciprocal rank fusion (chosen) | Weighted score fusion |
+|---|---|---|
+| What it computes | `1/(60 + embedding rank) + 1/(60 + BM25 rank)`. Only the order within each list counts. | Both scores rescaled to 0–1 for each question (for example, min-max), then `α × embedding + (1 − α) × BM25`. |
+| Settings to choose | One constant, k = 60, the published default. | The weight α and the rescaling method, both normally tuned. |
+| Data needed to set them | None. | Labelled questions. The only ones I have are my five test questions, and tuning on them would be fitting the test. |
+| Mismatched scales (cosine distance runs 0–2; BM25 is unbounded and changes with every question) | Never compared, because only ranks are used. | Must be reconciled for each question, so the same α weighs keywords differently from one question to the next. |
+| The size of a lead | Lost. A chunk far ahead counts the same as one barely ahead. The grade-appeal answer sits at 0.2025 and the next chunk at 0.6133. | Kept. A big semantic or keyword lead stays big. |
+| Rare words in this corpus ("Atrium" in 2 of 88 documents, "dining" in 4, "good" in 8) | A strong keyword match can move a chunk by at most 1/61 ≈ 0.016, so its effect has a ceiling. | After rescaling, the few chunks that share a rare word take most of the BM25 range. That could lift the Atrium answer further, and it could lift the Pellew "dining" posts just as hard. |
+| A question that shares no word with any chunk | BM25 adds nothing, and the result is the embedding ranking. | Min-max rescaling divides by zero and needs a special case. |
+| Criteria 2–5 | **3 can't get worse:** the gate reads the best real distance among the 5 returned, and that can never be lower than the best overall. **4 is untouched:** chunking doesn't change. **2** depends on which chunks reach the model. **5** pays for one BM25 pass. | Same, plus a few arithmetic steps for the rescaling. |
+| Where it's known to do well | As an untuned default across very different datasets. That's the finding of the 2009 paper that introduced it (Cormack, Clarke and Büttcher). | With α tuned on labelled questions. A 2023 comparison (Bruch, Gai and Ingber) found it then beats rank fusion. |
+
+Both are defensible. Weighted fusion might even move the Atrium chunk
+further, because it keeps the size of BM25's lead for a chunk that matches
+two rare words.
+
+I chose rank fusion because it's the one I can run honestly with what I have.
+- It needs no tuning. Any α I picked would come from my five test questions,
+  and choosing it after seeing their results is exactly the loosening this
+  unit warns against.
+- It also caps how far one rare-word match can move a chunk, and on this
+  corpus that's the risk I worry about most.
+
+A fair test of weighted fusion needs a separate set of labelled questions to
+tune α on. I don't have one, so it stays a follow-up rather than part of this
+measurement.
+
+**Why this, and what it's meant to fix.** After the first improvement nothing
+is missed, so this targets the thinnest margin left in my run logs.
+- Criterion 1's Atrium question passes only because its answer chunk
+  (`dining_the_atrium.txt#0`, *"genuinely good sandwiches restocked twice a
+  day"*) comes back at **rank 4 of 5**, behind the hours chunk and two
+  follow-up chunks.
+- Two of the question's words point straight at that chunk.
+  - "Atrium" appears in only 2 of the 88 documents.
+  - "good" appears in 8 documents, and among the Atrium's posts only in the
+    answer chunk.
+- The milestone says hybrid search helps "when your questions contain names,
+  numbers, or exact terms that semantic search glides past". "Good" next to
+  "Atrium" is that kind of term.
+
+**How I'll judge it, decided now.**
+- **It helped** if the Atrium answer chunk moves above rank 4 and no other
+  question's answer chunk drops out of the top 5.
+- **Evidence:** the `app.py retrieve` ranks for all five questions, plus a
+  third run log, labelled `after2`, with all five criteria, three runs each,
+  in the same condition as the other two.
+
+**What could go wrong, predicted before building.**
+- **"dining" pulls in the wrong posts.** The word is in 4 documents, and none
+  of them is the Atrium's: the two Pellew Dining Hall posts, the
+  dining-dollars post and a jobs post. BM25 could lift those into the top 5.
+- **The follow-up post rises instead of the answer.** It repeats "The Atrium"
+  and "what people have said about", so it shares more of the question's
+  words than the answer chunk does.
+- **Another question loses its answer.** Fusion could push a correct
+  embedding hit out of the top 5, which would cost criterion 1.
+- **The gate sees a worse best distance.** If fusion drops the embedding's
+  closest chunk, the gate's best distance goes up. For an in-corpus question
+  that could mean a refusal.
+- **Criterion 5 pays for the extra scoring.** It should be a few milliseconds
+  against a 50 ms line, but I'll measure it rather than assume.
+
 ## What's Still Broken
 
 <!-- For each criterion still missed after your fix: what you'd do about it,
