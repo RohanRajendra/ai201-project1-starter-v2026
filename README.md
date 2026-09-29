@@ -569,11 +569,11 @@ call. Turn 1 costs what it always did.
 
 | Criterion | Target | Run 1 | Run 2 | Run 3 | Verdict |
 |---|---|---|---|---|---|
-| 1. Retrieved chunk contains the answer | 4 of 5 | 5/5 | 5/5 | 5/5 |  |
-| 2. Every answer names a source | 5 of 5 | 5/5 | 5/5 | 5/5 |  |
-| 3. Gate stops out-of-corpus questions | 5 of 5 | 5/5 | 5/5 | 5/5 |  |
-| 4. Sampled chunks begin with their title line | 5 of 5 | 5/5 | 5/5 | 5/5 |  |
-| 5. Retrieval median under 50 ms, per question | 5 of 5 | 0/5 | 0/5 | 0/5 |  |
+| 1. Retrieved chunk contains the answer | 4 of 5 | 5/5 | 5/5 | 5/5 | MET |
+| 2. Every answer names a source | 5 of 5 | 5/5 | 5/5 | 5/5 | MET |
+| 3. Gate stops out-of-corpus questions | 5 of 5 | 5/5 | 5/5 | 5/5 | MET |
+| 4. Sampled chunks begin with their title line | 5 of 5 | 5/5 | 5/5 | 5/5 | MET |
+| 5. Retrieval median under 50 ms, per question | 5 of 5 | 0/5 | 0/5 | 0/5 | MISSED |
 
 <!-- Underneath, paste the REAL output for each criterion from one of your
      runs — the actual text your system produced, not a description of it.
@@ -818,11 +818,45 @@ All fifteen medians, read off the timing lines in the same file:
 
 | # | Criterion | Verdict | How I decided |
 |---|---|---|---|
-| 1 |  |  |  |
-| 2 |  |  |  |
-| 3 |  |  |  |
-| 4 |  |  |  |
-| 5 |  |  |  |
+| 1 | Retrieved chunk contains the answer (target: at least 4 of 5) | MET | Every run found the answer in the retrieved chunks for all 5 questions, one more than the target needs. The margin is thinner than 5/5 looks: the Atrium question passes only because its answer chunk comes back at rank 4 of the 5 retrieved. |
+| 2 | Every answer names a source (target: 5 of 5) | MET | The target allows no misses, so one unsourced answer in any run would have made this MISSED. All 15 answers (5 questions × 3 runs) name at least one corpus file. |
+| 3 | Gate stops out-of-corpus questions (target: 5 of 5) | MET | The gate refused all 5 `OUT_OF_SCOPE` questions. The nearest sits at 0.825 against a 0.65 cutoff, and the gate gives the same answer every time, so rerunning can't move this number. |
+| 4 | Sampled chunks begin with their title line (target: 5 of 5) | MET | In each of the three runs, all 5 sampled chunks start with exactly the first line of their source file. The three runs are the same five chunks, because the sample is taken by stride. |
+| 5 | Retrieval median under 50 ms, per question (target: 5 of 5) | MISSED | None of the 15 medians came in under 50 ms, so the target failed in every run, not just once. It isn't close: the fastest median was 64.7 ms and the other fourteen ran 81.2–92.3 ms. |
+
+**Arguing the other side.** Before settling these, I argued each one the
+opposite way. Three of those arguments are worth writing down. None of them
+changes a verdict.
+
+- **Criterion 3 as MISSED.** The criterion says the gate stops "a question my
+  documents clearly don't cover". My five `OUT_OF_SCOPE` questions come from a
+  different world entirely.
+  - In unit 1 I found off-topic questions that share the corpus's subject
+    matter and get *through* the gate. "What are the dining hall hours at
+    Stanford?" scores 0.404, well under 0.65.
+  - Read that broadly, the gate does not stop every question my documents
+    don't cover.
+  - It stays MET because the target counts five tries, those five are the
+    `OUT_OF_SCOPE` questions, and the run log measures exactly them. But it
+    means this criterion only ever asked about the easy case.
+- **Criterion 5 as MET.** Every pass ran on battery with Low Power Mode on,
+  which slows the CPU, so the same code might clear 50 ms plugged in.
+  - It stays MISSED because I fixed that condition before measuring, and the
+    criterion doesn't name any other.
+  - Switching to whichever condition passes after seeing the numbers would
+    be lowering the target by another route.
+- **Criterion 4 couldn't have come out any other way.** `split_documents`
+  puts the title at the top of every chunk of every document that has one,
+  and all 88 documents do.
+  - I checked all 122 chunks, not just the 5 sampled: every one starts with
+    its file's first line.
+  - So MET is right, but this criterion checks what the chunker's code
+    guarantees, not something the corpus could get wrong.
+
+I revised no criterion. Each one produced a number I could check the same
+way every time, so none turned out to be unmeasurable. Criteria 3 and 4 being
+easy to pass is a problem with where I set the bar, not with the measurement,
+so I come back to it under "What I'd Do Differently".
 
 ## Diagnoses
 
