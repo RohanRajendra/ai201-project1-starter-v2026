@@ -1174,6 +1174,133 @@ is missed, so this targets the thinnest margin left in my run logs.
 - **Criterion 5 pays for the extra scoring.** It should be a few milliseconds
   against a 50 ms line, but I'll measure it rather than assume.
 
+*Everything below was added after the build. The declaration above is
+unchanged.*
+
+### Run Log — After 2 (hybrid search)
+
+The code is in `store.py` (`search`, `_fuse`, `_keyword_index`, `_tokens`) and
+`config.py` (`HYBRID_SEARCH`). It's built exactly as declared above, with
+nothing tuned after seeing results.
+
+| Criterion | Target | Run 1 | Run 2 | Run 3 | Verdict |
+|---|---|---|---|---|---|
+| 1. Retrieved chunk contains the answer | 4 of 5 | 5/5 | 5/5 | 5/5 | MET |
+| 2. Every answer names a source | 5 of 5 | 5/5 | 5/5 | 5/5 | MET |
+| 3. Gate stops out-of-corpus questions | 5 of 5 | 5/5 | 5/5 | 5/5 | MET |
+| 4. Sampled chunks begin with their title line | 5 of 5 | 5/5 | 5/5 | 5/5 | MET |
+| 5. Retrieval median under 50 ms, per question | 5 of 5 | 5/5 | 5/5 | 5/5 | MET |
+
+**Where each row comes from.** The commands, counting and condition are the
+same as the other two logs. The files are labelled `after2`:
+
+- **Rows 1–3:** `results/run_2026-09-29_1610_after2.md`, from 15 real model
+  calls with none served from cache.
+- **Row 4:** `results/c4_chunks_after2.md`.
+- **Row 5:** `results/c5_timing_after2.md`, on battery with Low Power Mode on,
+  load average 2.6–3.0.
+- **Ranks behind row 1:** `results/c1_retrieve_after2.md`.
+
+Real output: the Atrium question with hybrid search on, from
+`python app.py retrieve "What is good about dining at the Atrium?"`
+(`app.py::cmd_retrieve` → `store.py::search` → `store.py::_fuse`), in
+`results/c1_retrieve_after2.md`. The rows are now in fused order, so the
+distances no longer rise down the column.
+
+```text
+Question: What is good about dining at the Atrium?
+
+#   distance   source                           preview
+----------------------------------------------------------------------------------------------------
+1   0.4324     dining_the_atrium_followup.txt   Re: The Atrium  Adding to what people have said abou...
+2   0.5275     dining_the_atrium_followup.txt   Re: The Atrium  Also worth saying: picked clean by 1...
+3   0.5311     dining_the_atrium.txt            The Atrium  Transferred in last year, so take this w...
+4   0.5978     dining_pellew_dining_hall_followup.txt Re: Pellew Dining Hall  Adding to what people have s...
+5   0.5412     dining_pellew_dining_hall_followup.txt Re: Pellew Dining Hall  Also worth saying: the furth...
+
+Gate: best distance 0.432 is under the 0.65 cutoff
+```
+
+**Did it help?** Yes, by the test I set before building. But only narrowly,
+and at a price.
+
+The test was whether the Atrium answer chunk moves above rank 4 while no other
+answer chunk drops out of the top 5. Here's where each question's answer chunk
+ranked with the embedding only (the after log) and with hybrid search
+(after2):
+
+| Question | Answer chunk | Rank, embedding only | Rank, hybrid |
+|---|---|---|---|
+| When does a grade appeal go to the department? | `admin_grade_appeals.txt#0` | 1 | 1 |
+| How to get an urgent health appointment? | `health_center.txt#0` | 1 | 1 |
+| What are the assessments for Linear Algebra? | `course_math_220.txt#0` | 2 | 3 |
+| When does Halden Hall close? | `dining_halden_hall_followup.txt#1` (also `dining_halden_hall.txt#0`) | 1 (and 3) | 1 (and 4) |
+| What is good about dining at the Atrium? | `dining_the_atrium.txt#0` | **4** | **3** |
+
+- **The test passes.** The Atrium answer moved from rank 4 to rank 3, and
+  every answer chunk stayed in the top 5.
+  - The margin that mattered closed: with a top-3 cutoff, the embedding-only
+    search finds 4 of 5 answers and the hybrid finds all 5.
+- **But not for the reason I predicted.** I expected BM25 to reward "good"
+  and lift the answer chunk. It didn't.
+  - By keywords alone, the answer chunk ranks only 4th. First is a Pellew
+    follow-up chunk, which shares "dining", "at", "about" and "what".
+  - The answer moved up because the chunk above it fell away. The Atrium's
+    hours chunk, the embedding's first, shares only "atrium" and "the" with
+    the question. It ranks 14th by keywords and dropped out of the top 5.
+  - The ranks, keyword ranks, word weights and fused scores behind this
+    section are in `results/hybrid_breakdown.md`, which lists the script that
+    produced them.
+- **Every criterion is still MET.** Criterion 5 paid about 2 ms: medians went
+  from 16.9–21.2 ms (after) to 19.5–22.5 ms (after2), even though the load
+  was lower this time (2.6–3.0 against 4.3–4.8).
+
+**How the risks I predicted before building turned out.** Three of the five
+came true.
+
+- **The follow-up post rose instead of the answer:** came true. The Atrium
+  follow-up's two chunks are now ranks 1 and 2. One shares "atrium", "about"
+  and "what" with the question, and the other "atrium" and "at". The answer
+  chunk shares "atrium" and "good".
+- **"dining" pulled in the wrong posts:** came true. Both Pellew Dining Hall
+  follow-up chunks are now in the Atrium top 5, at ranks 4 and 5.
+- **The gate sees a worse best distance:** came true, but harmlessly.
+  - Fusion dropped the Atrium's hours chunk, which was the embedding's
+    closest at 0.4126, so the best distance the gate sees rose to 0.4324.
+    That's still far under 0.65.
+  - Two out-of-corpus questions moved the same way. Mongolia went from 0.825
+    to 0.826 and the diesel engine from 0.923 to 0.934, and both are still
+    refused.
+- **Another question loses its answer:** didn't happen. But two answer
+  chunks slipped a place: Linear Algebra from 2 to 3, and Halden's second
+  answer chunk from 3 to 4.
+- **Criterion 5 pays for the extra scoring:** came true, at about 2 ms, as
+  above.
+
+**The side effect I didn't predict.** BM25 treats question words as keywords,
+because in this corpus they're rare.
+- The posts are statements, so "when", "how", "get" and "an" appear in few
+  chunks and get high weights: 3.53 for "when" and 3.88 for "how" and "an",
+  against 0.90 for "the".
+- That pulled chunks with nothing to do with the question into the context.
+  - The grade-appeal top 5 now includes `transit_shuttle.txt#1` at rank 2.
+    The embedding ranks it 25th (distance 0.8006), but BM25 ranks it 2nd
+    because it shares "when", along with "the" and "a".
+  - The health top 5 now includes `advising_registration.txt#0` (0.7717,
+    sharing "an" and "get").
+- The answers didn't suffer: all 15 are still correct and sourced. The
+  grounding instruction and the rank-1 chunk carried them. But the model is
+  now given more irrelevant text than before.
+
+**Is it worth keeping?** It's on in the committed system, and by my own test
+it earned that: one real rank gain where the margin was thinnest, and no
+criterion lost. Put plainly, it helped the question it was aimed at and added
+noise everywhere else.
+
+The obvious next step is keeping question words out of BM25's input with a
+stopword list. I haven't done it. It would be a third change, and I'd be
+tuning it on the same five questions.
+
 ## What's Still Broken
 
 <!-- For each criterion still missed after your fix: what you'd do about it,
