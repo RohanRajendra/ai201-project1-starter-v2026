@@ -952,12 +952,52 @@ single question runs at its own length. I haven't measured that part.
 
 ## The Improvement
 
-**What I changed:**
+**What I changed:** One argument, in `store.py::_OnnxEmbedder`:
 
-**Why I picked it:**
+```python
+# before
+self._ef = ONNXMiniLM_L6_V2()
+# after
+self._ef = ONNXMiniLM_L6_V2(preferred_providers=["CPUExecutionProvider"])
+```
+
+ONNX Runtime now runs MiniLM on its plain CPU provider. Before, it used the
+provider list Chroma picks when left alone, which puts CoreML first on this
+Mac. Nothing else changed: the model, chunks, index, top-k, gate and prompt
+are all the same. I didn't rebuild the index, because the vectors come out
+identical either way (cosine 1.000000 in the diagnosis). All five best
+distances are still 0.2025, 0.4552, 0.4264, 0.2326 and 0.4126.
+
+**Why I picked it:** It removes the second cause in my criterion 5 diagnosis.
+Left to choose, Chroma runs the embedding on the CoreML provider, and that
+alone makes each question's forward pass about 4× slower than the CPU
+provider, for an identical vector.
+
+The diagnosis found two causes, and the milestone asks for one change. I
+picked this one over removing the 256-token padding because it's a
+documented constructor argument. Removing the padding would mean overriding
+Chroma's tokenizer (a cached internal property), which a Chroma upgrade
+could quietly undo.
 
 <!-- Connect it to a specific diagnosis above in one sentence. If you can't,
      you picked a fix because it sounded impressive. -->
+
+**What I expected, written before the after run.**
+- Section B of `results/c5_diagnosis.md` puts a padded forward pass at
+  24.6–28.7 ms on the CPU provider, against 98.9–113.6 ms as shipped.
+- Add the client (about 3 ms) and the lookup (about 5 ms), and each
+  question's median should land around 32–38 ms. That's under 50, but not by
+  a wide margin.
+- Before choosing, I tried both candidate fixes in a throwaway script without
+  touching the repo, and it pointed the same way.
+
+**Why it might not work.**
+- **The 256-token padding is still there.** On the CPU provider it still
+  makes each forward pass about 10× longer than the question needs
+  (24.6–28.7 ms padded, 2.3–3.0 ms unpadded, section B). A load spike could
+  eat the margin.
+- **It's tuned to a specific device that is running the tests.** On hardware where CoreML suits this model,
+  forcing the CPU could be the slower choice.
 
 ### Run Log — After
 

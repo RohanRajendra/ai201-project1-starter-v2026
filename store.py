@@ -63,7 +63,11 @@ class _OnnxEmbedder:
     def __init__(self):
         from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
 
-        self._ef = ONNXMiniLM_L6_V2()
+        # CPU provider only. Left to itself, Chroma hands ONNX Runtime every
+        # provider installed — CoreML first, on a Mac — and for this model that
+        # made embedding one question about 4x slower for an identical vector.
+        # Unit 2 measured it: results/c5_diagnosis.md.
+        self._ef = ONNXMiniLM_L6_V2(preferred_providers=["CPUExecutionProvider"])
 
     def encode(self, texts, show_progress_bar: bool = False):
         return [vector.tolist() for vector in self._ef(list(texts))]
