@@ -278,6 +278,32 @@ I kept 0, for a reason I could state.
 dining," but updated the section to highlight the current limitations and why the
 grounding instruction layer should be able to catch it.
 
+**Unit 2.** I worked with Claude through this unit. 
+
+**3. Bug fixes on the scorer.** My placeholder
+`scorer.py` checked whether the `expects` text appeared in the *answer*.
+Claude pointed out two problems.
+- `(answer or "".lower)` meant the answer was never lowercased, and an empty
+  answer would crash.
+- None of my five criteria measures answer text. Criterion 1 is about the
+  retrieved chunks.
+
+Because my `expects` strings are copied word for word from the corpus, the
+same check run against the chunks *is* criterion 1. That's the rule I chose.
+
+**4. Analysing the best spot for the improvements for speed.** I asked which stage in the process was causing the highest latency. Claude read Chroma's embedder source, found the 256-token
+padding and the CoreML-first provider list, then timed them.
+- Ran with everything timed inside the same loop iteration.
+- It also spotted the pattern across the misses. All five questions missed
+  by the same margin because the padding makes every question cost the same,
+  so they were one failure, not five.
+
+**5. Defining the tradeoffs for the addtional hybrid search feature.** Before I
+committed the hybrid-search declaration, I asked whether weighted score
+fusion would beat rank fusion on this corpus. Claude answered by reasoning
+about the corpus. I kept rank fusion, and the comparison table in the stretch section was the result. 
+
+
 <!-- ── Stretch features ─────────────────────────────────────────────────────
      Doing one? Say so here BEFORE you start. A feature this README never
      claims earns nothing.
@@ -1311,9 +1337,78 @@ tuning it on the same five questions.
 
      Milestone 5. -->
 
+No criterion is still missed. Criterion 5 was the only miss, and it's MET in
+both later run logs. That isn't the same as nothing being left. These four
+problems remain, most important first.
+
+**1. Every question is still padded to 256 tokens.** That was the first cause
+in my criterion 5 diagnosis, and my fix only removed the second. On the CPU
+provider, a padded forward pass still takes 24.6–28.7 ms, against 2.3–3.0 ms
+unpadded (section B of `results/c5_diagnosis.md`). So roughly nine-tenths of
+every forward pass is still spent on padding.
+- *What I'd do:* make Chroma's tokenizer pad each batch only to its longest
+  input, then measure it the same way.
+- *Why I stopped:* the milestone allows one change. And this one overrides a
+  Chroma internal that a library upgrade could quietly undo, so it needs a
+  test that would notice.
+
+**2. Hybrid search feeds the model irrelevant chunks.** Question words like
+"when", "how" and "get" are rare in this corpus, so BM25 treats them as strong
+keywords. That puts `transit_shuttle.txt#1` at rank 2 for the grade-appeal
+question (`results/hybrid_breakdown.md`).
+- *What I'd do:* keep question words out of BM25's input with a stopword
+  list, judged on questions the system hasn't been tested on.
+- *Why I stopped:* it would be a third change, tuned on the same five
+  questions it would be measured by.
+
+**3. The gate can't tell this campus from another one.** In unit 1, "What are
+the dining hall hours at Stanford?" scored 0.404, closer than three of my five
+real questions, and no cutoff separates them. The grounding instruction
+catches it, but criterion 3 never tests that case.
+- *What I'd do:* add off-topic questions that share the corpus's subject,
+  and measure refusals from the whole system, not only from the gate.
+- *Why I stopped:* that's a new measurement, not a fix for a missed
+  criterion, so it belongs in the next unit's criteria.
+
+**4. The speed fix is proven on one machine only.** Every timing here comes
+from this laptop: Apple M4, on battery, Low Power Mode on. On hardware where
+CoreML suits this model, forcing the CPU provider could be the slower choice.
+- *What I'd do:* run `retrieve --time` on a second machine, and plugged in,
+  both with and without the fix.
+- *Why I stopped:* I only had this laptop. I'd also fixed the measurement
+  condition before seeing any numbers, so I kept to it.
+
 ## What I'd Do Differently
 
 <!-- Knowing what you know now — which of your five criteria would you write
      differently, and why?
 
      Milestone 5. -->
+
+In every case below, the evaluations showed that a criterion was easier to meet than earlier anticipated. 
+
+**Tighten Criterion 4 (chunks begin with their title line).** It
+couldn't fail. `split_documents` puts the title at the top of every chunk of
+every titled document, and all 88 documents have titles. So it checked what my
+own code guarantees, not something the corpus could get wrong. 
+
+I'd write a chunk criterion that can fail. For example: *"Each of the two-topic
+posts I name is split so every sub-topic gets its own chunk, checked with
+`python app.py chunks --from-doc`."* The Atrium post splits into a review chunk and an hours chunk. But
+the health centre's first paragraph falls just under the 180-character floor,
+so counselling got packed in with walk-in hours. 
+
+**Criterion 3 (gate stops out-of-corpus questions): I'd make the test set
+harder.** All five `OUT_OF_SCOPE` questions come from a different world. The
+nearest scored 0.825, far past the 0.65 cutoff, so 5 of 5 was never in doubt.
+- I'd add off-topic questions that share the corpus's subject, like the campus questions. 
+- I'd name the whole system's refusal as the outcome, not only the gate's,
+  because the grounding instruction is what catches those.
+
+**Criterion 5 (retrieval under 50 ms): Specifics on the measurement condition.**
+The criterion did not account for different devices that might run the tests and retrieval. I had to fix
+the condition myself before measuring, and my unit 1 figures of 170–193 ms
+came from a condition nobody wrote down. I'd put the condition into the
+criterion, and set the target from a measured baseline rather than a round
+number.
+
