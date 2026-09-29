@@ -915,7 +915,7 @@ it, all in the same loop iteration so they saw the same machine load. That was
 log: battery, Low Power Mode on. The data is section A of
 `results/c5_diagnosis.md`:
 
-| Step inside `store.search()` | Median across both runs |
+| Step inside `store.search()` | Range of medians across both runs |
 |---|---|
 | Open the Chroma client and collection | 3.3–3.5 ms |
 | **Embed the question** (`store.embed`) | **76.4–84.9 ms** |
@@ -923,8 +923,8 @@ log: battery, Low Power Mode on. The data is section A of
 | Whole `store.search()` | 83.9–94.1 ms |
 
 Embedding the question is 90–91% of the time, for every question in both
-runs. The retrieval stage itself, the lookup over 122 vectors, takes under
-5 ms. Even if the lookup took no time at all, criterion 5 would still miss.
+runs. The retrieval stage itself, the lookup over 122 vectors, takes 5 ms or
+less. Even if the lookup took no time at all, criterion 5 would still miss.
 The problem is in stage 3.
 
 **The mechanism.** `store.embed` uses the MiniLM build that Chroma bundles
@@ -942,7 +942,7 @@ its settings make a 9-to-12-token question cost far more than it needs to:
 Section B of the same file times one forward pass of the model four ways for
 each question:
 
-| One forward pass (median across both runs) | Padded to 256 | At the question's real length |
+| One forward pass (range of medians across both runs) | Padded to 256 | At the question's real length |
 |---|---|---|
 | Providers as Chroma sets them (CoreML first) | 98.9–113.6 ms | 22.2–26.0 ms |
 | CPU provider only | 24.6–28.7 ms | 2.3–3.0 ms |
@@ -1288,8 +1288,11 @@ came true.
   follow-up's two chunks are now ranks 1 and 2. One shares "atrium", "about"
   and "what" with the question, and the other "atrium" and "at". The answer
   chunk shares "atrium" and "good".
-- **"dining" pulled in the wrong posts:** came true. Both Pellew Dining Hall
-  follow-up chunks are now in the Atrium top 5, at ranks 4 and 5.
+- **"dining" pulled in the wrong posts:** came true for one chunk.
+  - The Pellew Dining Hall follow-up's first chunk rose from embedding rank 9
+    to rank 4, because BM25 ranks it 1st on "dining", "at", "about" and
+    "what".
+  - Its second chunk was already at rank 5 before hybrid search.
 - **The gate sees a worse best distance:** came true, but harmlessly.
   - Fusion dropped the Atrium's hours chunk, which was the embedding's
     closest at 0.4126, so the best distance the gate sees rose to 0.4324.
@@ -1385,7 +1388,8 @@ CoreML suits this model, forcing the CPU provider could be the slower choice.
 
      Milestone 5. -->
 
-In every case below, the evaluations showed that a criterion was easier to meet than earlier anticipated. 
+The evaluations showed that criteria 4 and 3 were easier to meet than earlier
+anticipated.
 
 **Tighten Criterion 4 (chunks begin with their title line).** It
 couldn't fail. `split_documents` puts the title at the top of every chunk of
