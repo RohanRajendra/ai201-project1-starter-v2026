@@ -878,6 +878,78 @@ so I come back to it under "What I'd Do Differently".
 
      Milestone 3. -->
 
+One criterion missed: **criterion 5**, retrieval under 50 ms. The other four
+were MET, so this is the only diagnosis.
+
+### Criterion 5: stage 3, embedding
+
+**Where the time goes.** I timed `store.search()` and the three steps inside
+it, all in the same loop iteration so they saw the same machine load. That was
+50 iterations per question, done twice. The condition was the same as the run
+log: battery, Low Power Mode on. The data is section A of
+`results/c5_diagnosis.md`:
+
+| Step inside `store.search()` | Median across both runs |
+|---|---|
+| Open the Chroma client and collection | 3.3–3.5 ms |
+| **Embed the question** (`store.embed`) | **76.4–84.9 ms** |
+| Count + nearest-neighbour lookup | 4.6–5.0 ms |
+| Whole `store.search()` | 83.9–94.1 ms |
+
+Embedding the question is 90–91% of the time, for every question in both
+runs. The retrieval stage itself, the lookup over 122 vectors, takes under
+5 ms. Even if the lookup took no time at all, criterion 5 would still miss.
+The problem is in stage 3.
+
+**The mechanism.** `store.embed` uses the MiniLM build that Chroma bundles
+(chromadb's `ONNXMiniLM_L6_V2`, created in `store.py::_OnnxEmbedder`). Two of
+its settings make a 9-to-12-token question cost far more than it needs to:
+
+1. **Every question is padded to 256 tokens.** Chroma's tokenizer calls
+   `enable_padding(length=256)`. My questions are 9 to 12 tokens long, so the
+   model processes 21 to 28 times as many positions as the question has.
+2. **Chroma gives ONNX Runtime every provider it has, and on this Mac the
+   first is CoreML.** The session runs with `['CoreMLExecutionProvider',
+   'AzureExecutionProvider', 'CPUExecutionProvider']`. Chroma's own source
+   comments that CoreML "doesn't fit this model".
+
+Section B of the same file times one forward pass of the model four ways for
+each question:
+
+| One forward pass (median across both runs) | Padded to 256 | At the question's real length |
+|---|---|---|
+| Providers as Chroma sets them (CoreML first) | 98.9–113.6 ms | 22.2–26.0 ms |
+| CPU provider only | 24.6–28.7 ms | 2.3–3.0 ms |
+
+The four variants run against each other in the same loop, so they compete for
+the same cores. Compare figures within this table rather than against the one
+above.
+
+Starting from the setup as it ships, removing either setting cuts a forward
+pass by about 4×, and removing both cuts it by about 40×. Neither setting
+changes the result. For every one of my five questions, the final vector is
+the same padded or unpadded, and on CoreML or CPU: cosine similarity 1.000000,
+because Chroma's mean pooling ignores the padded positions. All the extra time
+buys nothing.
+
+**The pattern.** All five questions miss by almost the same amount. Their
+medians in the run log run 81–92 ms apart from a single 64.7, and the
+embedding share is 90–91% for every one of them. That fits the mechanism: the
+cost doesn't depend on what I ask, because every question is padded to the
+same 256 tokens and sent through the same provider. It is one problem, not
+five.
+
+**What this corrects from unit 1.** My unit 1 README guessed that the ONNX
+build "runs single-threaded on the CPU". That is wrong. During a padded
+forward pass the process uses 4.65–4.98 CPU-seconds per wall-clock second
+(section C), so about five cores are busy. The slowdown doesn't come from too
+little parallelism. It comes from 21–28 times more positions than the
+question needs, run on a provider that suits this model badly.
+
+The padding probably also explains why mpnet came out faster than MiniLM in
+unit 1. sentence-transformers pads a batch only to its longest input, so a
+single question runs at its own length. I haven't measured that part.
+
 ## The Improvement
 
 **What I changed:**
