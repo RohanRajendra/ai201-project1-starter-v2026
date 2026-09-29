@@ -569,15 +569,241 @@ call. Turn 1 costs what it always did.
 
 | Criterion | Target | Run 1 | Run 2 | Run 3 | Verdict |
 |---|---|---|---|---|---|
-| 1. Retrieved chunk contains the answer | 4 of 5 |  |  |  |  |
-| 2. Every answer names a source | 5 of 5 |  |  |  |  |
-| 3. Gate stops out-of-corpus questions | 5 of 5 |  |  |  |  |
-| 4. | | | | | |
-| 5. | | | | | |
+| 1. Retrieved chunk contains the answer | 4 of 5 | 5/5 | 5/5 | 5/5 |  |
+| 2. Every answer names a source | 5 of 5 | 5/5 | 5/5 | 5/5 |  |
+| 3. Gate stops out-of-corpus questions | 5 of 5 | 5/5 | 5/5 | 5/5 |  |
+| 4. Sampled chunks begin with their title line | 5 of 5 | 5/5 | 5/5 | 5/5 |  |
+| 5. Retrieval median under 50 ms, per question | 5 of 5 | 0/5 | 0/5 | 0/5 |  |
 
 <!-- Underneath, paste the REAL output for each criterion from one of your
      runs — the actual text your system produced, not a description of it.
      Name the file and function that produced it. -->
+
+**Where each row comes from.** Everything is committed in `results/`.
+
+- **Rows 1–3** come from `results/run_2026-09-29_1408_before.md`, written by
+  `python run_eval.py --label before`, which asks each question three separate
+  times with caching off.
+  - Row 1 counts the `pass` marks from `scorer.py::judge`. It checks whether
+    the question's `expects` text, which I copied word for word from the
+    corpus, appears in any chunk `store.py::search` returned.
+  - Row 2 counts the answers that contain at least one corpus filename.
+  - Row 3 is the gate's single pass. The same number goes in all three
+    columns because retrieval and the gate give the same result every time.
+- **Row 4** comes from `results/c4_chunks_before.md`: three separate runs of
+  `python app.py chunks -n 5`, with each sampled chunk's first line checked
+  against `head -n 1` of its source file.
+- **Row 5** comes from `results/c5_timing_before.md`: three passes of
+  `python app.py retrieve "<question>" --time` over all five questions,
+  counting the medians under 50 ms.
+  - Every pass ran on battery with macOS Low Power Mode on, which is how I
+    normally use this laptop.
+  - I fixed that condition before the first pass, and the after run uses it too.
+- **Ranks behind row 1:** `results/c1_retrieve_before.md` has the full ranking
+  for each question.
+
+Rows 1, 3 and 4 come out the same in every column because nothing random
+happens in retrieval, the gate or the `chunks` sample. Rows 2 and 5 are the
+ones that could move. This was a real re-run, not a cache: the answer wording
+changes from run to run, and the run made 15 model calls with none served
+from cache.
+
+`results/` also holds three logs from 2026-09-23 (`run_2026-09-23_2028.md`,
+`run_2026-09-23_2039.md`, `run_2026-09-23_2100.md`). Earlier drafts of
+`scorer.py` scored them while I was building it. Their pass/fail marks don't
+measure criterion 1, so they are not this run log.
+
+Today's first attempt stopped on a Gemini `503 UNAVAILABLE` (model
+overloaded) at question 2, run 3, before `run_eval.py` wrote any file. The
+log above is the complete re-run.
+
+### Real output — criterion 1
+
+The per-question table from `results/run_2026-09-29_1408_before.md`, written
+by `run_eval.py::main`, with every mark from `scorer.py::judge`:
+
+```text
+| Question | Run 1 | Run 2 | Run 3 |
+|---|---|---|---|
+| When does a grade appeal go to the department? | pass | pass | pass |
+| How to get an urgent health appointment? | pass | pass | pass |
+| What are the assessments for Linear Algebra? | pass | pass | pass |
+| When does Halden Hall close? | pass | pass | pass |
+| What is good about dining at the Atrium? | pass | pass | pass |
+```
+
+The closest of the five is the Atrium question.
+- The chunk that holds the answer is `dining_the_atrium.txt#0`, which begins
+  *"Transferred in last year…"* and contains *"genuinely good sandwiches
+  restocked twice a day"*.
+- It comes back at rank 4 of 5.
+- This comes from `python app.py retrieve "What is good about dining at the
+  Atrium?"` (`app.py::cmd_retrieve` → `store.py::search`), in
+  `results/c1_retrieve_before.md`:
+
+```text
+Question: What is good about dining at the Atrium?
+
+#   distance   source                           preview
+----------------------------------------------------------------------------------------------------
+1   0.4126     dining_the_atrium.txt            The Atrium  Hours are 8:00am to 6:00pm weekdays. Cos...
+2   0.4324     dining_the_atrium_followup.txt   Re: The Atrium  Adding to what people have said abou...
+3   0.5275     dining_the_atrium_followup.txt   Re: The Atrium  Also worth saying: picked clean by 1...
+4   0.5311     dining_the_atrium.txt            The Atrium  Transferred in last year, so take this w...
+5   0.5412     dining_pellew_dining_hall_followup.txt Re: Pellew Dining Hall  Also worth saying: the furth...
+
+Gate: best distance 0.413 is under the 0.65 cutoff
+```
+
+### Real output — criterion 2
+
+Run 1's five answers from `results/run_2026-09-29_1408_before.md`. Each is
+generated by `generate.py::answer_from_chunks`, called from
+`run_eval.py::run_once`.
+
+**When does a grade appeal go to the department?** (run 1)
+
+```text
+A grade appeal goes to the department only after it has started with the instructor. 
+
+Source: admin_grade_appeals.txt
+```
+
+**How to get an urgent health appointment?** (run 1)
+
+```text
+If something is urgent, you should go to the health centre at 8am and wait rather than booking. 
+
+Source: health_center.txt
+```
+
+**What are the assessments for Linear Algebra?** (run 1)
+
+```text
+The assessments for Linear Algebra consist of two midterms and a cumulative final, which are curved to a B- median. 
+
+Source: `course_math_220.txt` (also mentioned in `course_math_220_exams.txt`)
+```
+
+**When does Halden Hall close?** (run 1)
+
+```text
+Halden Hall closes at 7:00pm, according to *dining_halden_hall.txt* and *dining_halden_hall_followup.txt*.
+```
+
+**What is good about dining at the Atrium?** (run 1)
+
+```text
+The Atrium features genuinely good sandwiches that are restocked twice a day, and it has no queue because it uses grab-and-go refrigerated cases. 
+
+Source: `dining_the_atrium.txt`
+```
+
+### Real output — criterion 3
+
+From `results/run_2026-09-29_1408_before.md`, written by
+`run_eval.py::check_out_of_scope`:
+
+```text
+Produced by `run_eval.py::check_out_of_scope`, cutoff 0.65. Refused 5 of 5.
+
+| Out-of-scope question | Best distance | Gate |
+|---|---|---|
+| What is the capital of Mongolia? | 0.825 | refused |
+| How do I change the oil in a diesel engine? | 0.923 | refused |
+| Who won the 1994 World Cup? | 0.886 | refused |
+| What is the recommended dosage of ibuprofen for a headache? | 0.848 | refused |
+| How do I write a for loop in Rust? | 0.877 | refused |
+```
+
+### Real output — criterion 4
+
+Pass 1 of `python app.py chunks -n 5` (`app.py::cmd_chunks` →
+`chunker.py::split_documents`), from `results/c4_chunks_before.md`:
+
+```text
+122 chunks total. Showing 5, spread across the corpus.
+
+Paste these into your README under Sample Chunks. The rubric asks
+for the source file and the function that produced them — both are
+printed for you below.
+
+======================================================================
+Chunk 1  |  source: admin_add_drop_deadline.txt#0  |  produced by: chunker.py::split_documents
+======================================================================
+On the add/drop deadline
+
+You can add a course through the end of the second week. Dropping is a longer window — through the end of week six — but a drop after week two shows as a W on your transcript. Nothing anywhere on the registrar's site says this plainly, and students find out from each other.
+
+======================================================================
+Chunk 2  |  source: course_cs_210_workload.txt#0  |  produced by: chunker.py::split_documents
+======================================================================
+Workload for CS 210 Data Structures
+
+People keep asking so: 8 to 10 hours a week outside class. That's real time, not optimistic time.
+
+It's front-loaded — the first month is heavier than the rest, partly because you're learning the format.
+
+======================================================================
+Chunk 3  |  source: course_phys_130_workload.txt#0  |  produced by: chunker.py::split_documents
+======================================================================
+Workload for PHYS 130 Mechanics
+
+People keep asking so: 7 hours a week, plus 3 on lab weeks. That's real time, not optimistic time.
+
+It's front-loaded — the first month is heavier than the rest, partly because you're learning the format.
+
+======================================================================
+Chunk 4  |  source: dining_the_ridgeway_cafe_followup.txt#1  |  produced by: chunker.py::split_documents
+======================================================================
+Re: The Ridgeway Café
+
+Also worth saying: seating is tight; about 40 seats for a building of 900. Nobody tells you this at orientation.
+
+======================================================================
+Chunk 5  |  source: housing_morrow_house_laundry.txt#0  |  produced by: chunker.py::split_documents
+======================================================================
+Laundry in Morrow House
+
+Machines take $1.50 wash, $1.25 dry, coin or card. There are eight washers and six dryers for the building, which is the wrong ratio and means the dryers back up on Sunday evenings.
+```
+
+| Chunk | Chunk's first line | `head -n 1` of its source file | Same? |
+|---|---|---|---|
+| `admin_add_drop_deadline.txt#0` | On the add/drop deadline | On the add/drop deadline | yes |
+| `course_cs_210_workload.txt#0` | Workload for CS 210 Data Structures | Workload for CS 210 Data Structures | yes |
+| `course_phys_130_workload.txt#0` | Workload for PHYS 130 Mechanics | Workload for PHYS 130 Mechanics | yes |
+| `dining_the_ridgeway_cafe_followup.txt#1` | Re: The Ridgeway Café | Re: The Ridgeway Café | yes |
+| `housing_morrow_house_laundry.txt#0` | Laundry in Morrow House | Laundry in Morrow House | yes |
+
+Passes 2 and 3 printed the same five chunks, because `cmd_chunks` samples by
+stride, not at random.
+
+### Real output — criterion 5
+
+Pass 1, first question, from `results/c5_timing_before.md`. The timing lines
+are printed by `app.py::_print_retrieval_timing`, which times
+`store.py::search`:
+
+```text
+Retrieval timing, 5 runs after one discarded warm-up:
+  min 69.7 ms   median 85.2 ms   max 93.5 ms
+  This times store.search() alone: embedding the question, then the
+  Chroma lookup. It EXCLUDES process start-up, loading the embedding
+  model, and the generation call — none of which happen again once
+  the process is warm.
+```
+
+All fifteen medians, read off the timing lines in the same file:
+
+| Question | Pass 1 | Pass 2 | Pass 3 |
+|---|---|---|---|
+| When does a grade appeal go to the department? | 85.2 ms | 81.8 ms | 82.8 ms |
+| How to get an urgent health appointment? | 82.9 ms | 64.7 ms | 84.1 ms |
+| What are the assessments for Linear Algebra? | 86.5 ms | 81.4 ms | 85.3 ms |
+| When does Halden Hall close? | 92.3 ms | 82.3 ms | 81.2 ms |
+| What is good about dining at the Atrium? | 84.1 ms | 83.4 ms | 82.3 ms |
+| **Under 50 ms** | **0 of 5** | **0 of 5** | **0 of 5** |
 
 ## Verdicts
 
